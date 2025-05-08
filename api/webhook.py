@@ -5,38 +5,56 @@ from urllib.parse import parse_qs, urlparse
 # Configuración
 WHATSAPP_WEBHOOK_TOKEN = os.environ.get("WHATSAPP_WEBHOOK_TOKEN")
 
-class handler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        """Maneja la verificación del webhook por parte de WhatsApp."""
-        # Parsear la URL y los parámetros de consulta
-        parsed_url = urlparse(self.path)
-        query_params = parse_qs(parsed_url.query)
+def handler(request, context):
+    """
+    Maneja las solicitudes al webhook de WhatsApp.
+    
+    Args:
+        request: Objeto de solicitud HTTP
+        context: Contexto de la función
+        
+    Returns:
+        Respuesta HTTP
+    """
+    # Determinar el método HTTP
+    if request.method == "GET":
+        # Manejar verificación del webhook
+        query_params = request.query
         
         # Obtener los parámetros del desafío
-        mode = query_params.get('hub.mode', [''])[0]
-        token = query_params.get('hub.verify_token', [''])[0]
-        challenge = query_params.get('hub.challenge', [''])[0]
+        mode = query_params.get('hub.mode', [''])[0] if 'hub.mode' in query_params else ''
+        token = query_params.get('hub.verify_token', [''])[0] if 'hub.verify_token' in query_params else ''
+        challenge = query_params.get('hub.challenge', [''])[0] if 'hub.challenge' in query_params else ''
+        
+        print(f"Verificando webhook. Mode: {mode}, Token: {token}, Challenge: {challenge}")
+        print(f"Token esperado: {WHATSAPP_WEBHOOK_TOKEN}")
         
         # Verificar el token
         if mode == 'subscribe' and token == WHATSAPP_WEBHOOK_TOKEN:
             # Responder con el desafío
-            self.send_response(200)
-            self.send_header('Content-type', 'text/plain')
-            self.end_headers()
-            self.wfile.write(challenge.encode())
-            print(f"Webhook verificado! Challenge: {challenge}")
+            print("Webhook verificado!")
+            return {
+                "statusCode": 200,
+                "body": challenge
+            }
         else:
             # Responder con error
-            self.send_response(403)
-            self.send_header('Content-type', 'text/plain')
-            self.end_headers()
-            self.wfile.write("Verification failed".encode())
             print(f"Verificación fallida. Mode: {mode}, Token recibido: {token}, Token esperado: {WHATSAPP_WEBHOOK_TOKEN}")
+            return {
+                "statusCode": 403,
+                "body": "Verification failed"
+            }
     
-    def do_POST(self):
-        """Recibe notificaciones de mensajes y eventos de WhatsApp."""
-        # Simplemente responder OK para la validación
-        self.send_response(200)
-        self.send_header('Content-type', 'text/plain')
-        self.end_headers()
-        self.wfile.write("OK".encode())
+    elif request.method == "POST":
+        # Manejar notificaciones de mensajes
+        return {
+            "statusCode": 200,
+            "body": "OK"
+        }
+    
+    else:
+        # Método no soportado
+        return {
+            "statusCode": 405,
+            "body": "Method not allowed"
+        }
