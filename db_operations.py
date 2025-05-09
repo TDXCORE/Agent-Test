@@ -243,17 +243,30 @@ def add_message(conversation_id: str, role: str, content: str, message_type: str
     response = supabase.table("messages").insert(message_data).execute()
     return response.data[0] if response.data else {}
 
-def get_conversation_history(conversation_id: str) -> List[Dict]:
+def get_conversation_history(conversation_id: str, max_messages: int = 10) -> List[Dict]:
     """
-    Obtiene el historial de mensajes de una conversación en formato para el agente.
+    Obtiene el historial de mensajes de una conversación en formato para el agente,
+    limitando la cantidad de mensajes para reducir el consumo de tokens.
     
     Args:
         conversation_id: ID de la conversación
+        max_messages: Número máximo de mensajes a recuperar (por defecto 10)
         
     Returns:
         Lista de mensajes en formato {role, content}
     """
-    messages = get_conversation_messages(conversation_id)
+    # Obtener todos los mensajes de la conversación
+    all_messages = get_conversation_messages(conversation_id)
+    
+    # Limitar la cantidad de mensajes, pero asegurar que tengamos el mensaje de sistema
+    system_messages = [msg for msg in all_messages if msg["role"] == "system"]
+    non_system_messages = [msg for msg in all_messages if msg["role"] != "system"]
+    
+    # Tomar los mensajes más recientes, pero respetando el límite
+    recent_messages = non_system_messages[-max_messages:] if len(non_system_messages) > max_messages else non_system_messages
+    
+    # Combinar mensajes de sistema con los mensajes recientes
+    messages = system_messages + recent_messages
     
     # Convertir al formato que espera el agente
     history = []
@@ -282,7 +295,7 @@ def get_conversation_history(conversation_id: str) -> List[Dict]:
     # Imprimir el historial para depuración
     import logging
     logger = logging.getLogger(__name__)
-    logger.info(f"Historial de conversación recuperado: {len(history)} mensajes")
+    logger.info(f"Historial de conversación recuperado: {len(history)} mensajes (limitado a {max_messages} mensajes no-sistema)")
     for i, msg in enumerate(history):
         logger.info(f"Mensaje {i+1}: {msg['role']} - {msg['content'][:50]}...")
     
