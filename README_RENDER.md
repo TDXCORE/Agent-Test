@@ -10,7 +10,9 @@ Este documento proporciona instrucciones para desplegar la aplicación en Render
 
 ## Pasos para el despliegue
 
-### 1. Crear un nuevo servicio web en Render
+### 1. Despliegue inicial con aplicación simplificada
+
+Para evitar problemas con dependencias complejas durante el despliegue inicial, se recomienda comenzar con la aplicación simplificada:
 
 1. Inicia sesión en tu cuenta de Render
 2. Haz clic en "New" y selecciona "Web Service"
@@ -21,7 +23,16 @@ Este documento proporciona instrucciones para desplegar la aplicación en Render
    - **Región**: Selecciona la región más cercana a tus usuarios
    - **Rama**: main (o la rama que desees desplegar)
    - **Comando de construcción**: `pip install -r requirements.txt`
-   - **Comando de inicio**: `gunicorn whatsapp_api:app`
+   - **Comando de inicio**: `gunicorn simple_app:app --timeout 120`
+
+### 2. Migración a la aplicación completa
+
+Una vez que el despliegue inicial sea exitoso y hayas configurado todas las variables de entorno correctamente, puedes migrar a la aplicación completa:
+
+1. Ve a la sección "Settings" de tu servicio en Render
+2. Actualiza el comando de inicio a: `gunicorn whatsapp_api:app --timeout 120`
+3. Haz clic en "Save Changes"
+4. Inicia un nuevo despliegue desde la sección "Manual Deploy"
 
 ### 2. Configurar variables de entorno
 

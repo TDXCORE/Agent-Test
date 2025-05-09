@@ -8,9 +8,63 @@ load_dotenv()
 SUPABASE_URL = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
-# Crear cliente de Supabase
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+# Variable global para el cliente de Supabase
+supabase = None
 
 def get_supabase_client():
     """Retorna el cliente de Supabase"""
+    global supabase
+    
+    # Inicializar el cliente solo si no existe y las variables de entorno están configuradas
+    if supabase is None and SUPABASE_URL and SUPABASE_KEY:
+        try:
+            supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+        except Exception as e:
+            print(f"Error al inicializar el cliente de Supabase: {str(e)}")
+            # Retornar un objeto mock si hay error
+            return MockSupabaseClient()
+    
+    # Si las variables de entorno no están configuradas, retornar un objeto mock
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        print("Variables de entorno de Supabase no configuradas. Usando cliente mock.")
+        return MockSupabaseClient()
+    
     return supabase
+
+# Clase mock para cuando Supabase no está disponible
+class MockSupabaseClient:
+    """Cliente mock de Supabase para cuando no está disponible"""
+    
+    def table(self, table_name):
+        return MockTable()
+
+class MockTable:
+    """Tabla mock para cuando Supabase no está disponible"""
+    
+    def select(self, *args):
+        return self
+    
+    def insert(self, *args):
+        return self
+    
+    def update(self, *args):
+        return self
+    
+    def delete(self, *args):
+        return self
+    
+    def eq(self, *args):
+        return self
+    
+    def order(self, *args, **kwargs):
+        return self
+    
+    def execute(self):
+        # Retornar un objeto con estructura similar a la respuesta de Supabase
+        return MockResponse()
+
+class MockResponse:
+    """Respuesta mock para cuando Supabase no está disponible"""
+    
+    def __init__(self):
+        self.data = []

@@ -1,1 +1,1 @@
-web: gunicorn whatsapp_api:app --timeout 120
+web: gunicorn simple_app:app --timeout 120
