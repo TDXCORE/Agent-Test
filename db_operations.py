@@ -210,7 +210,7 @@ def get_conversation_messages(conversation_id: str) -> List[Dict]:
     response = supabase.table("messages") \
         .select("*") \
         .eq("conversation_id", conversation_id) \
-        .order("created_at", {"ascending": True}) \
+        .order("created_at") \
         .execute()
     
     return response.data
@@ -643,7 +643,7 @@ def get_user_meetings(user_id: str) -> List[Dict]:
     response = supabase.table("meetings") \
         .select("*") \
         .eq("user_id", user_id) \
-        .order("start_time", {"ascending": True}) \
+        .order("start_time") \
         .execute()
     
     return response.data
