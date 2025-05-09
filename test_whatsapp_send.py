@@ -10,13 +10,16 @@ load_dotenv()
 WHATSAPP_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
 WHATSAPP_ACCESS_TOKEN = os.getenv("WHATSAPP_ACCESS_TOKEN")
 
-def send_whatsapp_message(to, message):
+# Variables adicionales de Postman (si no están en .env, usar valores por defecto)
+BUSINESS_ID = "747682971423654"  # Business-ID de Postman
+WABA_ID = "648404611299992"      # WABA-ID de Postman
+
+def send_whatsapp_message(to):
     """
-    Envía un mensaje de texto a WhatsApp usando la Cloud API.
+    Envía un mensaje usando la plantilla 'demo' a WhatsApp usando la Cloud API.
     
     Args:
         to: Número de teléfono del destinatario (con código de país, sin + o 00)
-        message: Contenido del mensaje
     
     Returns:
         Respuesta de la API
@@ -29,21 +32,30 @@ def send_whatsapp_message(to, message):
         "Content-Type": "application/json"
     }
     
+    # Payload exactamente como en Postman
     payload = {
         "messaging_product": "whatsapp",
-        "recipient_type": "individual",
         "to": to,
-        "type": "text",
-        "text": {"body": message}
+        "type": "template",
+        "template": {
+            "name": "demo",
+            "language": {
+                "code": "en"
+            }
+        }
     }
     
-    print(f"Enviando mensaje a {to}: {message}")
+    # Añadir los IDs adicionales que se usan en Postman
+    payload["business_id"] = BUSINESS_ID
+    payload["waba_id"] = WABA_ID
+    
+    print(f"Enviando plantilla 'demo' a {to}")
     print(f"URL: {url}")
     print(f"Headers: {headers}")
-    print(f"Payload: {json.dumps(payload, indent=2)}")
+    print(f"Payload: {json.dumps(payload, indent=2, ensure_ascii=False)}")
     
     # Enviar solicitud a la API
-    response = requests.post(url, headers=headers, data=json.dumps(payload))
+    response = requests.post(url, headers=headers, json=payload)
     
     print(f"Código de respuesta: {response.status_code}")
     print(f"Respuesta: {response.text}")
@@ -59,14 +71,11 @@ if __name__ == "__main__":
     # Solicitar número de teléfono al usuario
     to = input("Ingresa el número de teléfono del destinatario (con código de país, sin + o 00, ej: 573001234567): ")
     
-    # Solicitar mensaje al usuario
-    message = input("Ingresa el mensaje a enviar: ")
-    
-    # Enviar mensaje
-    result = send_whatsapp_message(to, message)
+    # Enviar mensaje usando la plantilla demo
+    result = send_whatsapp_message(to)
     
     if result:
-        print("\n¡Mensaje enviado exitosamente!")
+        print("\n¡Mensaje con plantilla 'demo' enviado exitosamente!")
         print(f"ID del mensaje: {result.get('messages', [{}])[0].get('id', 'No disponible')}")
     else:
         print("\nError al enviar el mensaje. Verifica las credenciales y el número de teléfono.")

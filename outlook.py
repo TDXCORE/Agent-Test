@@ -25,6 +25,8 @@ import os
 import msal
 import requests
 import pytz
+import time
+import logging
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
@@ -34,8 +36,18 @@ from db_operations import (
     update_meeting_status
 )
 
+# Configurar logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
 # Cargar variables de entorno
 load_dotenv()
+
+# Configuración de timeout (60 segundos)
+REQUEST_TIMEOUT = 60
 
 # Configuración desde variables de entorno
 TENANT_ID = os.getenv("AZURE_TENANT_ID")
@@ -52,24 +64,38 @@ GRAPH_ENDPOINT = "https://graph.microsoft.com/v1.0"
 
 
 def get_access_token():
+    """Obtiene un token de acceso para Microsoft Graph API"""
+    start_time = time.time()
+    logger.info("Obteniendo token de acceso para Microsoft Graph API")
+    
     if not CLIENT_ID or not TENANT_ID:
-        print("ERROR: Define CLIENT_ID y TENANT_ID.")
+        logger.error("ERROR: Define CLIENT_ID y TENANT_ID.")
         return None, None
-    if CLIENT_SECRET:
-        app = msal.ConfidentialClientApplication(CLIENT_ID, client_credential=CLIENT_SECRET, authority=AUTHORITY)
-        result = app.acquire_token_for_client(scopes=SCOPES_APP)
-        token_type = "app"
-    else:
-        app = msal.PublicClientApplication(CLIENT_ID, authority=AUTHORITY)
-        flow = app.initiate_device_flow(scopes=SCOPES_DELEGATED)
-        print(flow.get("message"))
-        result = app.acquire_token_by_device_flow(flow)
-        token_type = "delegated"
-    if not result or "access_token" not in result:
-        print("Error obteniendo token:", result.get("error_description"))
+    
+    try:
+        if CLIENT_SECRET:
+            app = msal.ConfidentialClientApplication(CLIENT_ID, client_credential=CLIENT_SECRET, authority=AUTHORITY)
+            result = app.acquire_token_for_client(scopes=SCOPES_APP)
+            token_type = "app"
+        else:
+            app = msal.PublicClientApplication(CLIENT_ID, authority=AUTHORITY)
+            flow = app.initiate_device_flow(scopes=SCOPES_DELEGATED)
+            logger.info(flow.get("message"))
+            result = app.acquire_token_by_device_flow(flow)
+            token_type = "delegated"
+        
+        if not result or "access_token" not in result:
+            logger.error(f"Error obteniendo token: {result.get('error_description')}")
+            return None, None
+        
+        elapsed_time = time.time() - start_time
+        logger.info(f"Token obtenido OK ({token_type}) en {elapsed_time:.2f}s")
+        return result["access_token"], token_type
+    
+    except Exception as e:
+        elapsed_time = time.time() - start_time
+        logger.error(f"Error al obtener token después de {elapsed_time:.2f}s: {str(e)}")
         return None, None
-    print(f"Token obtenido OK ({token_type})")
-    return result["access_token"], token_type
 
 
 def get_available_slots(start_date=None, days=5, start_hour=8, end_hour=17):
@@ -108,11 +134,19 @@ def get_available_slots(start_date=None, days=5, start_hour=8, end_hour=17):
     if token_type == "app":
         endpoint = f"{GRAPH_ENDPOINT}/users/{USER_EMAIL}/calendarView?startDateTime={start_str}&endDateTime={end_str}"
     
-    # Obtener eventos del calendario
-    resp = requests.get(
-        endpoint,
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    )
+    # Obtener eventos del calendario con timeout
+    try:
+        resp = requests.get(
+            endpoint,
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            timeout=REQUEST_TIMEOUT
+        )
+    except requests.exceptions.Timeout:
+        logger.error(f"Timeout al obtener eventos después de {REQUEST_TIMEOUT}s")
+        return []
+    except Exception as e:
+        logger.error(f"Error al obtener eventos: {str(e)}")
+        return []
     
     if resp.status_code != 200:
         print(f"Error al obtener eventos: {resp.status_code} - {resp.text}")
@@ -233,12 +267,20 @@ def schedule_meeting(subject, start, duration, attendees, body="", is_online_mee
     if token_type == "app":
         endpoint = f"{GRAPH_ENDPOINT}/users/{USER_EMAIL}/events"
     
-    # Crear el evento
-    resp = requests.post(
-        endpoint,
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-        json=event
-    )
+    # Crear el evento con timeout
+    try:
+        resp = requests.post(
+            endpoint,
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json=event,
+            timeout=REQUEST_TIMEOUT
+        )
+    except requests.exceptions.Timeout:
+        logger.error(f"Timeout al crear evento después de {REQUEST_TIMEOUT}s")
+        return None
+    except Exception as e:
+        logger.error(f"Error al crear evento: {str(e)}")
+        return None
     
     if resp.status_code not in (200, 201):
         print(f"Error al crear evento: {resp.status_code} - {resp.text}")
@@ -289,11 +331,19 @@ def reschedule_meeting(meeting_id, new_start, duration=None):
     if token_type == "app":
         endpoint = f"{GRAPH_ENDPOINT}/users/{USER_EMAIL}/events/{meeting_id}"
     
-    # Primero obtener la reunión existente
-    resp = requests.get(
-        endpoint,
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    )
+    # Primero obtener la reunión existente con timeout
+    try:
+        resp = requests.get(
+            endpoint,
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            timeout=REQUEST_TIMEOUT
+        )
+    except requests.exceptions.Timeout:
+        logger.error(f"Timeout al obtener evento para reprogramar después de {REQUEST_TIMEOUT}s")
+        return None
+    except Exception as e:
+        logger.error(f"Error al obtener evento para reprogramar: {str(e)}")
+        return None
     
     if resp.status_code != 200:
         print(f"Error al obtener evento: {resp.status_code} - {resp.text}")
@@ -331,12 +381,20 @@ def reschedule_meeting(meeting_id, new_start, duration=None):
         }
     }
     
-    # Actualizar el evento
-    resp = requests.patch(
-        endpoint,
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-        json=update_data
-    )
+    # Actualizar el evento con timeout
+    try:
+        resp = requests.patch(
+            endpoint,
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json=update_data,
+            timeout=REQUEST_TIMEOUT
+        )
+    except requests.exceptions.Timeout:
+        logger.error(f"Timeout al actualizar evento después de {REQUEST_TIMEOUT}s")
+        return None
+    except Exception as e:
+        logger.error(f"Error al actualizar evento: {str(e)}")
+        return None
     
     if resp.status_code != 200:
         print(f"Error al actualizar evento: {resp.status_code} - {resp.text}")
@@ -391,11 +449,19 @@ def cancel_meeting(meeting_id):
     if token_type == "app":
         endpoint = f"{GRAPH_ENDPOINT}/users/{USER_EMAIL}/events/{meeting_id}"
     
-    # Eliminar el evento
-    resp = requests.delete(
-        endpoint,
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    )
+    # Eliminar el evento con timeout
+    try:
+        resp = requests.delete(
+            endpoint,
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            timeout=REQUEST_TIMEOUT
+        )
+    except requests.exceptions.Timeout:
+        logger.error(f"Timeout al cancelar evento después de {REQUEST_TIMEOUT}s")
+        return False
+    except Exception as e:
+        logger.error(f"Error al cancelar evento: {str(e)}")
+        return False
     
     if resp.status_code != 204:  # 204 No Content es la respuesta esperada para DELETE exitoso
         print(f"Error al cancelar evento: {resp.status_code} - {resp.text}")
@@ -447,11 +513,19 @@ def find_meetings_by_subject(subject_contains, start_date=None, end_date=None):
     if token_type == "app":
         endpoint = f"{GRAPH_ENDPOINT}/users/{USER_EMAIL}/calendarView?startDateTime={start_str}&endDateTime={end_str}"
     
-    # Obtener eventos del calendario
-    resp = requests.get(
-        endpoint,
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    )
+    # Obtener eventos del calendario con timeout
+    try:
+        resp = requests.get(
+            endpoint,
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            timeout=REQUEST_TIMEOUT
+        )
+    except requests.exceptions.Timeout:
+        logger.error(f"Timeout al buscar reuniones después de {REQUEST_TIMEOUT}s")
+        return []
+    except Exception as e:
+        logger.error(f"Error al buscar reuniones: {str(e)}")
+        return []
     
     if resp.status_code != 200:
         print(f"Error al obtener eventos: {resp.status_code} - {resp.text}")

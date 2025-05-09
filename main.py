@@ -3,6 +3,8 @@ import json
 import datetime
 import asyncio
 import pytz
+import logging
+import time
 from typing import List, Dict, Optional, Annotated, Any
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
@@ -13,6 +15,16 @@ from langgraph.prebuilt import create_react_agent
 from langgraph.prebuilt.chat_agent_executor import AgentState
 from langgraph.checkpoint.memory import InMemorySaver
 from langsmith import Client
+
+# Configurar logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# Configuración de timeout (60 segundos)
+REQUEST_TIMEOUT = 60
 
 # Importar funciones de outlook.py
 from outlook import get_available_slots as outlook_get_slots
@@ -690,8 +702,14 @@ def reschedule_meeting(meeting_id: str, new_date: str, new_time: str, duration: 
 
 # Función principal para crear el agente
 def create_lead_qualification_agent():
-    # Inicializar el modelo de OpenAI GPT-4o
-    model = ChatOpenAI(model="gpt-4o", temperature=0.2)
+    # Inicializar el modelo de OpenAI GPT-4o con timeout configurado
+    model = ChatOpenAI(
+        model="gpt-4o", 
+        temperature=0.2,
+        request_timeout=REQUEST_TIMEOUT,
+        max_retries=2
+    )
+    logger.info(f"Modelo OpenAI inicializado con timeout de {REQUEST_TIMEOUT} segundos")
     
     # Configurar checkpointer para memoria
     checkpointer = InMemorySaver()
@@ -826,11 +844,25 @@ def run_interactive_terminal():
         # Añadir mensaje del usuario
         messages.append({"role": "user", "content": user_input})
         
-        # Invocar al agente
+    # Invocar al agente con medición de tiempo
+    start_time = time.time()
+    logger.info(f"Invocando agente para procesar mensaje: {user_input[:50]}...")
+    
+    try:
         response = agent.invoke(
             {"messages": messages},
             config
         )
+        
+        elapsed_time = time.time() - start_time
+        logger.info(f"Agente respondió en {elapsed_time:.2f}s")
+    except Exception as e:
+        elapsed_time = time.time() - start_time
+        logger.error(f"Error al invocar agente después de {elapsed_time:.2f}s: {str(e)}")
+        # Proporcionar una respuesta de fallback
+        response = {
+            "messages": messages + [{"role": "assistant", "content": "Lo siento, estoy experimentando dificultades técnicas. Por favor, intenta nuevamente en unos momentos."}]
+        }
         
         # Actualizar mensajes con la respuesta
         messages = response["messages"]
