@@ -22,9 +22,16 @@ from db_operations import (
 # Configurar logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler()  # Asegurar que los logs se envíen a stdout para Render
+    ]
 )
 logger = logging.getLogger(__name__)
+
+# Configurar logging para módulos importantes
+logging.getLogger('main').setLevel(logging.INFO)
+logging.getLogger('db_operations').setLevel(logging.INFO)
 
 # Cargar variables de entorno
 load_dotenv()
@@ -321,6 +328,10 @@ def receive_webhook():
     """
     Recibe notificaciones de mensajes y eventos de WhatsApp.
     """
+    # Log completo de headers para diagnóstico
+    headers_dict = dict(request.headers)
+    logger.info(f"Headers recibidos: {json.dumps(headers_dict)}")
+    
     # Verificar firma X-Hub-Signature-256
     signature = request.headers.get('X-Hub-Signature-256', '')
     
@@ -338,7 +349,8 @@ def receive_webhook():
     
     # Procesar datos del webhook
     data = request.json
-    logger.info(f"Webhook recibido: {json.dumps(data)[:200]}...")
+    # Log completo del payload para diagnóstico
+    logger.info(f"Webhook recibido COMPLETO: {json.dumps(data, indent=2)}")
     
     # Verificar si es un mensaje entrante
     if data.get('object') == 'whatsapp_business_account':
@@ -355,18 +367,31 @@ def process_webhook_messages(message_data):
     """
     Procesa los mensajes recibidos en el webhook.
     """
+    logger.info(f"Procesando datos de webhook: {json.dumps(message_data, indent=2)}")
+    
+    # Verificar si hay mensajes
     messages = message_data.get('messages', [])
+    if not messages:
+        logger.warning("No se encontraron mensajes en los datos del webhook")
+        return
+    
+    logger.info(f"Número de mensajes a procesar: {len(messages)}")
+    
     for message in messages:
         message_type = message.get('type')
         sender = message.get('from')
         message_id = message.get('id')
         
+        logger.info(f"Procesando mensaje: ID={message_id}, Tipo={message_type}, Remitente={sender}")
+        
         if message_type == 'text':
             text = message.get('text', {}).get('body', '')
+            logger.info(f"Contenido del mensaje de texto: {text}")
             process_incoming_message(sender, 'text', text, message_id)
         
         elif message_type in ["image", "audio", "video"]:
             media_id = message.get(message_type, {}).get('id')
+            logger.info(f"Contenido multimedia recibido: Tipo={message_type}, Media ID={media_id}")
             # Para mensajes multimedia, informamos al agente del tipo de contenido
             media_type_names = {
                 "image": "imagen",
@@ -375,6 +400,8 @@ def process_webhook_messages(message_data):
             }
             media_message = f"[El usuario ha enviado un archivo de tipo {media_type_names.get(message_type, 'multimedia')}]"
             process_incoming_message(sender, 'text', media_message, message_id)
+        else:
+            logger.warning(f"Tipo de mensaje no soportado: {message_type}")
 
 # ---- SERVIDOR PARA DESARROLLO LOCAL ----
 

@@ -1,1 +1,1 @@
-web: gunicorn simple_app:app --timeout 120
+web: gunicorn simple_webhook:app --timeout 120

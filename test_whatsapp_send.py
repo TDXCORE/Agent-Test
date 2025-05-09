@@ -14,12 +14,13 @@ WHATSAPP_ACCESS_TOKEN = os.getenv("WHATSAPP_ACCESS_TOKEN")
 BUSINESS_ID = "747682971423654"  # Business-ID de Postman
 WABA_ID = "648404611299992"      # WABA-ID de Postman
 
-def send_whatsapp_message(to):
+def send_whatsapp_message(to, message="Hola, este es un mensaje de prueba."):
     """
-    Envía un mensaje usando la plantilla 'demo' a WhatsApp usando la Cloud API.
+    Envía un mensaje de texto a WhatsApp usando la Cloud API.
     
     Args:
         to: Número de teléfono del destinatario (con código de país, sin + o 00)
+        message: Mensaje de texto a enviar (por defecto es un mensaje de prueba)
     
     Returns:
         Respuesta de la API
@@ -32,24 +33,18 @@ def send_whatsapp_message(to):
         "Content-Type": "application/json"
     }
     
-    # Payload exactamente como en Postman
+    # Payload para mensaje de texto (no usa plantilla)
     payload = {
         "messaging_product": "whatsapp",
+        "recipient_type": "individual",
         "to": to,
-        "type": "template",
-        "template": {
-            "name": "demo",
-            "language": {
-                "code": "en"
-            }
+        "type": "text",
+        "text": {
+            "body": message
         }
     }
     
-    # Añadir los IDs adicionales que se usan en Postman
-    payload["business_id"] = BUSINESS_ID
-    payload["waba_id"] = WABA_ID
-    
-    print(f"Enviando plantilla 'demo' a {to}")
+    print(f"Enviando mensaje de texto a {to}")
     print(f"URL: {url}")
     print(f"Headers: {headers}")
     print(f"Payload: {json.dumps(payload, indent=2, ensure_ascii=False)}")
@@ -71,11 +66,15 @@ if __name__ == "__main__":
     # Solicitar número de teléfono al usuario
     to = input("Ingresa el número de teléfono del destinatario (con código de país, sin + o 00, ej: 573001234567): ")
     
-    # Enviar mensaje usando la plantilla demo
-    result = send_whatsapp_message(to)
+    # Solicitar mensaje personalizado (opcional)
+    use_custom = input("¿Deseas enviar un mensaje personalizado? (s/n): ").lower() == 's'
+    message = input("Escribe tu mensaje: ") if use_custom else "Hola, este es un mensaje de prueba."
+    
+    # Enviar mensaje de texto
+    result = send_whatsapp_message(to, message)
     
     if result:
-        print("\n¡Mensaje con plantilla 'demo' enviado exitosamente!")
+        print("\n¡Mensaje de texto enviado exitosamente!")
         print(f"ID del mensaje: {result.get('messages', [{}])[0].get('id', 'No disponible')}")
     else:
         print("\nError al enviar el mensaje. Verifica las credenciales y el número de teléfono.")
