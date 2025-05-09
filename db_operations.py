@@ -257,11 +257,34 @@ def get_conversation_history(conversation_id: str) -> List[Dict]:
     
     # Convertir al formato que espera el agente
     history = []
+    
+    # Asegurar que siempre haya un mensaje de sistema al inicio
+    system_message_exists = False
+    
     for msg in messages:
+        # Verificar si ya existe un mensaje de sistema
+        if msg["role"] == "system":
+            system_message_exists = True
+        
+        # Añadir el mensaje al historial
         history.append({
             "role": msg["role"],
             "content": msg["content"]
         })
+    
+    # Si no hay mensaje de sistema, añadir uno al inicio
+    if not system_message_exists and history:
+        history.insert(0, {
+            "role": "system",
+            "content": "Iniciando conversación con un potencial cliente."
+        })
+    
+    # Imprimir el historial para depuración
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"Historial de conversación recuperado: {len(history)} mensajes")
+    for i, msg in enumerate(history):
+        logger.info(f"Mensaje {i+1}: {msg['role']} - {msg['content'][:50]}...")
     
     return history
 

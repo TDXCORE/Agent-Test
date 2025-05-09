@@ -16,11 +16,11 @@ WABA_ID = "648404611299992"      # WABA-ID de Postman
 
 def send_whatsapp_message(to, message="Hola, este es un mensaje de prueba."):
     """
-    Envía un mensaje de texto a WhatsApp usando la Cloud API.
+    Envía un mensaje a WhatsApp usando la plantilla 'demo'.
     
     Args:
         to: Número de teléfono del destinatario (con código de país, sin + o 00)
-        message: Mensaje de texto a enviar (por defecto es un mensaje de prueba)
+        message: Mensaje de texto a enviar (no se usa con plantillas, pero se mantiene para compatibilidad)
     
     Returns:
         Respuesta de la API
@@ -33,18 +33,20 @@ def send_whatsapp_message(to, message="Hola, este es un mensaje de prueba."):
         "Content-Type": "application/json"
     }
     
-    # Payload para mensaje de texto (no usa plantilla)
+    # Payload para mensaje usando la plantilla 'demo'
     payload = {
         "messaging_product": "whatsapp",
-        "recipient_type": "individual",
         "to": to,
-        "type": "text",
-        "text": {
-            "body": message
+        "type": "template",
+        "template": {
+            "name": "demo",
+            "language": {
+                "code": "en"
+            }
         }
     }
     
-    print(f"Enviando mensaje de texto a {to}")
+    print(f"Enviando mensaje con plantilla 'demo' a {to}")
     print(f"URL: {url}")
     print(f"Headers: {headers}")
     print(f"Payload: {json.dumps(payload, indent=2, ensure_ascii=False)}")
@@ -66,15 +68,11 @@ if __name__ == "__main__":
     # Solicitar número de teléfono al usuario
     to = input("Ingresa el número de teléfono del destinatario (con código de país, sin + o 00, ej: 573001234567): ")
     
-    # Solicitar mensaje personalizado (opcional)
-    use_custom = input("¿Deseas enviar un mensaje personalizado? (s/n): ").lower() == 's'
-    message = input("Escribe tu mensaje: ") if use_custom else "Hola, este es un mensaje de prueba."
-    
-    # Enviar mensaje de texto
-    result = send_whatsapp_message(to, message)
+    # Enviar mensaje usando la plantilla 'demo'
+    result = send_whatsapp_message(to)
     
     if result:
-        print("\n¡Mensaje de texto enviado exitosamente!")
+        print("\n¡Mensaje con plantilla 'demo' enviado exitosamente!")
         print(f"ID del mensaje: {result.get('messages', [{}])[0].get('id', 'No disponible')}")
     else:
         print("\nError al enviar el mensaje. Verifica las credenciales y el número de teléfono.")

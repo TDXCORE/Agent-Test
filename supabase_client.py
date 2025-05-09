@@ -30,12 +30,10 @@ def get_supabase_client():
     # Inicializar el cliente solo si no existe y las variables de entorno están configuradas
     if supabase is None and SUPABASE_URL and SUPABASE_KEY:
         try:
-            # Crear cliente HTTP con timeout configurado
-            http_client = httpx.Client(timeout=REQUEST_TIMEOUT)
-            
-            # Crear cliente Supabase con el cliente HTTP personalizado
-            supabase = create_client(SUPABASE_URL, SUPABASE_KEY, http_client=http_client)
-            logger.info("Cliente Supabase inicializado con timeout de 60 segundos")
+            # Crear cliente Supabase con timeout configurado
+            # Nota: No usamos http_client ya que no es compatible con la versión actual
+            supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+            logger.info("Cliente Supabase inicializado")
         except Exception as e:
             logger.error(f"Error al inicializar el cliente de Supabase: {str(e)}")
             # Retornar un objeto mock si hay error
@@ -135,19 +133,87 @@ class MockTable:
                 "external_id": "573153041548",  # Usar un número real para pruebas
                 "platform": "whatsapp",
                 "status": "active"
-            },
-            "messages": {
-                "id": "mock-message-id",
-                "created_at": "2025-05-09T20:00:00.000Z",
-                "updated_at": "2025-05-09T20:00:00.000Z",
-                "conversation_id": "mock-conversation-id",
-                "role": "user",
-                "content": "Mensaje mock",
-                "message_type": "text",
-                "media_url": None,
-                "external_id": "mock-external-id"
             }
         }
+        
+        # Para la tabla de mensajes, generamos una lista de mensajes para simular una conversación
+        if self.table_name == "messages":
+            # Si hay un filtro de conversation_id, usamos ese ID
+            conversation_id = self.filters.get("conversation_id", "mock-conversation-id")
+            
+            # Verificar si estamos buscando un mensaje específico o todos los mensajes de una conversación
+            if "id" in self.filters:
+                # Si buscamos un mensaje específico, devolvemos solo ese mensaje
+                return [{
+                    "id": self.filters["id"],
+                    "created_at": "2025-05-09T20:00:00.000Z",
+                    "updated_at": "2025-05-09T20:00:00.000Z",
+                    "conversation_id": conversation_id,
+                    "role": "user",
+                    "content": "Mensaje específico",
+                    "message_type": "text",
+                    "media_url": None,
+                    "external_id": "mock-external-id-specific"
+                }]
+            else:
+                # Si buscamos todos los mensajes de una conversación, devolvemos una secuencia de mensajes
+                return [
+                    {
+                        "id": "mock-message-system",
+                        "created_at": "2025-05-09T20:00:00.000Z",
+                        "updated_at": "2025-05-09T20:00:00.000Z",
+                        "conversation_id": conversation_id,
+                        "role": "system",
+                        "content": "Iniciando conversación con un potencial cliente.",
+                        "message_type": "text",
+                        "media_url": None,
+                        "external_id": None
+                    },
+                    {
+                        "id": "mock-message-assistant-1",
+                        "created_at": "2025-05-09T20:01:00.000Z",
+                        "updated_at": "2025-05-09T20:01:00.000Z",
+                        "conversation_id": conversation_id,
+                        "role": "assistant",
+                        "content": "¡Hola! Soy el asistente virtual de nuestra empresa de desarrollo de software. ¿En qué puedo ayudarte hoy?",
+                        "message_type": "text",
+                        "media_url": None,
+                        "external_id": None
+                    },
+                    {
+                        "id": "mock-message-user-1",
+                        "created_at": "2025-05-09T20:02:00.000Z",
+                        "updated_at": "2025-05-09T20:02:00.000Z",
+                        "conversation_id": conversation_id,
+                        "role": "user",
+                        "content": "Hola",
+                        "message_type": "text",
+                        "media_url": None,
+                        "external_id": "mock-external-id-1"
+                    },
+                    {
+                        "id": "mock-message-assistant-2",
+                        "created_at": "2025-05-09T20:03:00.000Z",
+                        "updated_at": "2025-05-09T20:03:00.000Z",
+                        "conversation_id": conversation_id,
+                        "role": "assistant",
+                        "content": "¡Hola! Soy tu asistente virtual especializado en calificar leads para nuestra empresa de desarrollo de software. Estoy aquí para ayudarte a través del proceso de calificación y agendar una cita para discutir tus necesidades.\n\nPara comenzar, necesito tu consentimiento para procesar tus datos personales de acuerdo con el GDPR/LPD. ¿Estás de acuerdo en continuar?",
+                        "message_type": "text",
+                        "media_url": None,
+                        "external_id": None
+                    },
+                    {
+                        "id": "mock-message-user-2",
+                        "created_at": "2025-05-09T20:04:00.000Z",
+                        "updated_at": "2025-05-09T20:04:00.000Z",
+                        "conversation_id": conversation_id,
+                        "role": "user",
+                        "content": "Si",
+                        "message_type": "text",
+                        "media_url": None,
+                        "external_id": "mock-external-id-2"
+                    }
+                ]
         
         # Usar datos por defecto si no hay tabla específica
         default_data = {
