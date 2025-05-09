@@ -275,7 +275,7 @@ def get_available_slots(preferred_date: Optional[str] = None) -> str:
         current_year = today.year
         
         # Log para depuración
-        logger.info(f"Fecha actual: {today.strftime('%Y-%m-%d %H:%M:%S')}")
+        logger.info(f"Fecha actual: {today.strftime('%Y-%m-%d %H:%M:%S')} (Año: {current_year})")
         
         # Fecha mínima para agendar (48 horas después de hoy)
         min_date = today + datetime.timedelta(days=2)
@@ -289,9 +289,9 @@ def get_available_slots(preferred_date: Optional[str] = None) -> str:
             try:
                 start_date = datetime.datetime.strptime(preferred_date, "%Y-%m-%d")
                 
-                # Verificar que el año sea actual o futuro
-                if start_date.year < current_year:
-                    logger.warning(f"Fecha preferida {preferred_date} tiene año {start_date.year} anterior al actual {current_year}")
+                # SIEMPRE verificar que el año sea actual o futuro
+                if start_date.year != current_year:
+                    logger.warning(f"Fecha preferida {preferred_date} tiene año {start_date.year} diferente al actual {current_year}")
                     start_date = start_date.replace(year=current_year)
                     logger.info(f"Fecha corregida a {start_date.strftime('%Y-%m-%d')}")
                 
