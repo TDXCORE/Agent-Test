@@ -117,13 +117,24 @@ def get_available_slots(start_date=None, days=5, start_hour=8, end_hour=17):
     
     # Si no se proporciona fecha de inicio, usar hoy
     bogota_tz = pytz.timezone(TIMEZONE)
+    current_time = datetime.now(bogota_tz)
+    
+    # Asegurar que start_date sea una fecha futura
     if not start_date:
-        start_date = datetime.now(bogota_tz)
+        start_date = current_time
     elif not start_date.tzinfo:
         start_date = bogota_tz.localize(start_date)
     
+    # Verificar que la fecha de inicio no sea en el pasado
+    if start_date < current_time:
+        logger.warning(f"Fecha de inicio {start_date} es en el pasado. Usando fecha actual {current_time}")
+        start_date = current_time
+    
     # Calcular fecha de fin
     end_date = start_date + timedelta(days=days + 2)  # +2 para compensar fines de semana
+    
+    # Log para depuración
+    logger.info(f"Consultando slots disponibles desde {start_date.strftime('%Y-%m-%d')} hasta {end_date.strftime('%Y-%m-%d')}")
     
     # Formatear fechas para la API
     start_str = start_date.strftime("%Y-%m-%dT00:00:00Z")

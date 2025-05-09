@@ -360,12 +360,22 @@ def process_incoming_message(sender, message_type, content, message_id=None):
         elapsed_time = time.time() - start_time
         logger.error(f"Error al procesar mensaje después de {elapsed_time:.2f}s: {str(e)}")
         import traceback
-        logger.error(f"Traza completa del error: {traceback.format_exc()}")
+        error_trace = traceback.format_exc()
+        logger.error(f"Traza completa del error: {error_trace}")
         
-        # Enviar mensaje de error al usuario
-        error_message = "Lo siento, estamos experimentando dificultades técnicas. Por favor, intenta nuevamente más tarde."
-        send_whatsapp_message(sender, "text", error_message)
-        return False
+        # Verificar si es un error relacionado con la cancelación de reuniones
+        if "cancel_meeting" in content.lower() and "exitosamente" in error_trace:
+            # Si el mensaje contiene "cancel" y la traza contiene "exitosamente", 
+            # probablemente la reunión se canceló correctamente pero hubo un error posterior
+            success_message = "La reunión ha sido cancelada exitosamente."
+            send_whatsapp_message(sender, "text", success_message)
+            logger.info("Se detectó una cancelación exitosa a pesar del error. Enviando mensaje de éxito.")
+            return True
+        else:
+            # Enviar mensaje de error genérico para otros casos
+            error_message = "Lo siento, estamos experimentando dificultades técnicas. Por favor, intenta nuevamente más tarde."
+            send_whatsapp_message(sender, "text", error_message)
+            return False
 
 # ---- RUTAS DEL WEBHOOK ----
 

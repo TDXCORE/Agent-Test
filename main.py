@@ -272,6 +272,10 @@ def get_available_slots(preferred_date: Optional[str] = None) -> str:
         # Determinar rango de fechas a consultar
         bogota_tz = pytz.timezone("America/Bogota")
         today = datetime.datetime.now(bogota_tz)
+        current_year = today.year
+        
+        # Log para depuración
+        logger.info(f"Fecha actual: {today.strftime('%Y-%m-%d %H:%M:%S')}")
         
         # Fecha mínima para agendar (48 horas después de hoy)
         min_date = today + datetime.timedelta(days=2)
@@ -284,6 +288,13 @@ def get_available_slots(preferred_date: Optional[str] = None) -> str:
             # Si hay una fecha preferida, verificar si es válida
             try:
                 start_date = datetime.datetime.strptime(preferred_date, "%Y-%m-%d")
+                
+                # Verificar que el año sea actual o futuro
+                if start_date.year < current_year:
+                    logger.warning(f"Fecha preferida {preferred_date} tiene año {start_date.year} anterior al actual {current_year}")
+                    start_date = start_date.replace(year=current_year)
+                    logger.info(f"Fecha corregida a {start_date.strftime('%Y-%m-%d')}")
+                
                 start_date = bogota_tz.localize(start_date)
                 
                 # Si la fecha es anterior a la fecha mínima, informar al usuario
@@ -294,6 +305,7 @@ def get_available_slots(preferred_date: Optional[str] = None) -> str:
                 else:
                     response_message = f"Horarios disponibles para el {start_date.strftime('%d/%m/%Y')} y días siguientes:\n\n"
             except ValueError:
+                logger.error(f"Formato de fecha inválido: {preferred_date}")
                 response_message = "El formato de fecha proporcionado no es válido. Por favor, utiliza el formato YYYY-MM-DD (por ejemplo, 2025-05-15).\n\nA continuación te muestro los horarios disponibles más próximos:\n\n"
                 # Usar la fecha mínima para consultar disponibilidad
                 start_date = min_date
@@ -302,25 +314,49 @@ def get_available_slots(preferred_date: Optional[str] = None) -> str:
             start_date = min_date
             response_message = f"Horarios disponibles a partir del {min_date_str}:\n\n"
         
+        # Log para depuración
+        logger.info(f"Consultando slots disponibles desde {start_date.strftime('%Y-%m-%d')}")
+        
         # Consultar slots disponibles usando la función de outlook.py
         # Mostrar 3 días de disponibilidad a partir de la fecha mínima
         available_slots = outlook_get_slots(start_date=start_date, days=3)
+        
+        # Log para depuración
+        logger.info(f"Slots disponibles encontrados: {len(available_slots)}")
         
         # Si no hay slots disponibles, intentar con fechas posteriores
         if not available_slots:
             # Intentar con los siguientes 5 días
             next_start_date = start_date + datetime.timedelta(days=5)
+            logger.info(f"No hay slots disponibles, intentando con fecha: {next_start_date.strftime('%Y-%m-%d')}")
             available_slots = outlook_get_slots(start_date=next_start_date, days=5)
             
             if not available_slots:
                 # Si aún no hay slots, intentar con los siguientes 5 días
                 next_start_date = next_start_date + datetime.timedelta(days=5)
+                logger.info(f"No hay slots disponibles, intentando con fecha: {next_start_date.strftime('%Y-%m-%d')}")
                 available_slots = outlook_get_slots(start_date=next_start_date, days=5)
             
             if available_slots:
                 response_message += f"No hay horarios disponibles para las fechas solicitadas. Te muestro los horarios disponibles a partir del {next_start_date.strftime('%d/%m/%Y')}:\n\n"
             else:
                 return "Lo siento, no se encontraron horarios disponibles para las próximas dos semanas. Por favor, contacta directamente con nuestro equipo al correo soporte@tdxcore.com para agendar una reunión personalizada."
+        
+        # Verificar que todos los slots sean de fechas futuras
+        valid_slots = []
+        for slot in available_slots:
+            slot_date = datetime.datetime.strptime(slot["date"], "%Y-%m-%d")
+            slot_date = bogota_tz.localize(slot_date.replace(hour=int(slot["time"].split(":")[0]), 
+                                                           minute=int(slot["time"].split(":")[1])))
+            
+            # Verificar que la fecha sea futura y posterior a la fecha mínima
+            if slot_date >= min_date:
+                valid_slots.append(slot)
+            else:
+                logger.warning(f"Descartando slot en el pasado: {slot['date']} {slot['time']}")
+        
+        # Usar solo slots válidos
+        available_slots = valid_slots
         
         # Formatear la respuesta para el usuario
         formatted_slots = []
@@ -350,6 +386,9 @@ def get_available_slots(preferred_date: Optional[str] = None) -> str:
         return response_message + "\n".join(formatted_by_date) + "\n\nPor favor, indícame qué fecha y hora te conviene más para agendar la reunión."
     
     except Exception as e:
+        logger.error(f"Error al consultar disponibilidad: {str(e)}")
+        import traceback
+        logger.error(f"Traza completa: {traceback.format_exc()}")
         return f"Lo siento, hubo un problema al consultar la disponibilidad: {str(e)}. Por favor, intenta nuevamente o escribe una fecha específica en formato YYYY-MM-DD (por ejemplo, 2025-05-15)."
 
 @tool
@@ -578,11 +617,14 @@ def cancel_meeting(meeting_id: str) -> str:
                 # Actualizar estado
                 update_meeting_status(meeting_in_db["id"], "cancelled")
             
+            logger.info(f"Reunión {meeting_id} cancelada exitosamente")
             return "La reunión ha sido cancelada exitosamente."
         else:
+            logger.error(f"No se pudo cancelar la reunión {meeting_id}")
             return "No se pudo cancelar la reunión. Por favor, verifique el ID de la reunión e intente más tarde."
     
     except Exception as e:
+        logger.error(f"Error al cancelar la reunión {meeting_id}: {str(e)}")
         return f"Error al cancelar la reunión: {str(e)}. Por favor, intente más tarde."
 
 @tool
