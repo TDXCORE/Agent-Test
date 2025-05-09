@@ -80,6 +80,7 @@ Si encuentras errores durante el despliegue, verifica:
 1. Que el archivo `requirements.txt` esté correctamente formateado
 2. Que todas las variables de entorno estén configuradas
 3. Que el comando de inicio sea correcto
+4. Que no exista el archivo `supabase.py` (debe usar `supabase_client.py` en su lugar para evitar importaciones circulares)
 
 ### Error de webhook
 
