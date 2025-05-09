@@ -3,7 +3,7 @@ services:
     name: whatsapp-webhook
     env: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn whatsapp_api:app
+    startCommand: gunicorn whatsapp_api:app --timeout 120
     envVars:
       - key: OPENAI_API_KEY
         sync: false

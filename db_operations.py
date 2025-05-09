@@ -3,7 +3,7 @@ Operaciones de base de datos para interactuar con Supabase.
 Este archivo proporciona funciones para realizar operaciones CRUD en la base de datos.
 """
 
-from supabase import get_supabase_client
+from supabase_client import get_supabase_client
 from typing import Dict, List, Optional, Any, Union
 import uuid
 
