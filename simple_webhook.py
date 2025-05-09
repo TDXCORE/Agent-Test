@@ -201,17 +201,29 @@ def process_incoming_message(sender, message_type, content, message_id=None):
     """
     start_time = time.time()
     logger.info(f"Procesando mensaje de {sender} (tipo: {message_type})")
+    logger.info(f"Contenido del mensaje: '{content}'")
     
     try:
         # Marcar mensaje como leído si tenemos el ID
         if message_id:
+            logger.info(f"Marcando mensaje como leído: {message_id}")
             mark_message_as_read(message_id)
         
         # Obtener o crear usuario
-        user = get_or_create_user(phone=sender)
+        try:
+            user = get_or_create_user(phone=sender)
+            logger.info(f"Usuario obtenido/creado: {user.get('id')}")
+        except Exception as user_error:
+            logger.error(f"Error al obtener/crear usuario: {str(user_error)}")
+            raise
         
         # Obtener o crear conversación
-        conversation = get_or_create_conversation(user_id=user["id"], external_id=sender, platform="whatsapp")
+        try:
+            conversation = get_or_create_conversation(user_id=user["id"], external_id=sender, platform="whatsapp")
+            logger.info(f"Conversación obtenida/creada: {conversation.get('id')}")
+        except Exception as conv_error:
+            logger.error(f"Error al obtener/crear conversación: {str(conv_error)}")
+            raise
         
         # Preparar el contenido del mensaje según el tipo
         message_content = content
@@ -224,36 +236,60 @@ def process_incoming_message(sender, message_type, content, message_id=None):
             }
             message_content = f"[El usuario ha enviado un archivo de tipo {media_type_names.get(message_type, 'multimedia')}]"
         
+        logger.info(f"Contenido del mensaje preparado: '{message_content}'")
+        
         # Agregar mensaje del usuario a la base de datos
-        add_message(
-            conversation_id=conversation["id"],
-            role="user",
-            content=message_content,
-            message_type=message_type,
-            external_id=message_id
-        )
+        try:
+            user_message = add_message(
+                conversation_id=conversation["id"],
+                role="user",
+                content=message_content,
+                message_type=message_type,
+                external_id=message_id
+            )
+            logger.info(f"Mensaje del usuario añadido a la BD: {user_message.get('id')}")
+        except Exception as msg_error:
+            logger.error(f"Error al añadir mensaje del usuario: {str(msg_error)}")
+            raise
         
         # Obtener historial de mensajes para el agente
-        messages_history = get_conversation_history(conversation["id"])
+        try:
+            messages_history = get_conversation_history(conversation["id"])
+            logger.info(f"Historial de mensajes obtenido: {len(messages_history)} mensajes")
+            
+            # Imprimir los últimos mensajes para depuración
+            for i, msg in enumerate(messages_history[-5:] if len(messages_history) > 5 else messages_history):
+                logger.info(f"Mensaje {i+1}: {msg['role']} - '{msg['content']}'")
+        except Exception as hist_error:
+            logger.error(f"Error al obtener historial de mensajes: {str(hist_error)}")
+            raise
         
         # Si es una nueva conversación, agregar mensaje de sistema
-        if len(messages_history) == 0:
-            # Agregar mensaje de sistema
-            add_message(
-                conversation_id=conversation["id"],
-                role="system",
-                content="Iniciando conversación con un potencial cliente."
-            )
-            
-            # Agregar mensaje de bienvenida
-            add_message(
-                conversation_id=conversation["id"],
-                role="assistant",
-                content="¡Hola! Soy el asistente virtual de nuestra empresa de desarrollo de software. ¿En qué puedo ayudarte hoy?"
-            )
-            
-            # Actualizar historial
-            messages_history = get_conversation_history(conversation["id"])
+        if len(messages_history) <= 1:  # Solo hay el mensaje que acabamos de añadir
+            logger.info("Iniciando nueva conversación con mensajes de sistema y bienvenida")
+            try:
+                # Agregar mensaje de sistema
+                system_message = add_message(
+                    conversation_id=conversation["id"],
+                    role="system",
+                    content="Iniciando conversación con un potencial cliente."
+                )
+                logger.info(f"Mensaje de sistema añadido: {system_message.get('id')}")
+                
+                # Agregar mensaje de bienvenida
+                welcome_message = add_message(
+                    conversation_id=conversation["id"],
+                    role="assistant",
+                    content="¡Hola! Soy el asistente virtual de nuestra empresa de desarrollo de software. ¿En qué puedo ayudarte hoy?"
+                )
+                logger.info(f"Mensaje de bienvenida añadido: {welcome_message.get('id')}")
+                
+                # Actualizar historial
+                messages_history = get_conversation_history(conversation["id"])
+                logger.info(f"Historial actualizado: {len(messages_history)} mensajes")
+            except Exception as init_error:
+                logger.error(f"Error al inicializar conversación: {str(init_error)}")
+                raise
         
         # Configuración para la ejecución del agente
         config = {
@@ -263,33 +299,57 @@ def process_incoming_message(sender, message_type, content, message_id=None):
         }
         
         # Invocar al agente con el historial de mensajes
-        response = lead_agent.invoke(
-            {"messages": messages_history},
-            config
-        )
+        try:
+            logger.info("Invocando al agente con el historial de mensajes")
+            response = lead_agent.invoke(
+                {"messages": messages_history},
+                config
+            )
+            logger.info("Agente invocado exitosamente")
+        except Exception as agent_error:
+            logger.error(f"Error al invocar al agente: {str(agent_error)}")
+            import traceback
+            logger.error(f"Traza completa: {traceback.format_exc()}")
+            raise
         
         # Obtener la respuesta del agente
-        assistant_message = response["messages"][-1]
-        if hasattr(assistant_message, "content"):
-            # Si es un objeto de mensaje de LangChain
-            agent_response = assistant_message.content
-        elif isinstance(assistant_message, dict) and "content" in assistant_message:
-            # Si es un diccionario
-            agent_response = assistant_message["content"]
-        else:
-            # Fallback
-            agent_response = str(assistant_message)
+        try:
+            assistant_message = response["messages"][-1]
+            if hasattr(assistant_message, "content"):
+                # Si es un objeto de mensaje de LangChain
+                agent_response = assistant_message.content
+            elif isinstance(assistant_message, dict) and "content" in assistant_message:
+                # Si es un diccionario
+                agent_response = assistant_message["content"]
+            else:
+                # Fallback
+                agent_response = str(assistant_message)
+            
+            logger.info(f"Respuesta del agente obtenida: '{agent_response[:100]}...'")
+        except Exception as resp_error:
+            logger.error(f"Error al obtener respuesta del agente: {str(resp_error)}")
+            raise
         
         # Enviar la respuesta al usuario
-        send_whatsapp_message(sender, "text", agent_response)
+        try:
+            send_result = send_whatsapp_message(sender, "text", agent_response)
+            logger.info(f"Respuesta enviada al usuario: {send_result is not None}")
+        except Exception as send_error:
+            logger.error(f"Error al enviar respuesta al usuario: {str(send_error)}")
+            # No lanzamos excepción aquí para poder guardar la respuesta en la BD
         
         # Guardar respuesta del asistente en la base de datos
-        add_message(
-            conversation_id=conversation["id"],
-            role="assistant",
-            content=agent_response,
-            message_type="text"
-        )
+        try:
+            assistant_db_message = add_message(
+                conversation_id=conversation["id"],
+                role="assistant",
+                content=agent_response,
+                message_type="text"
+            )
+            logger.info(f"Respuesta del asistente guardada en BD: {assistant_db_message.get('id')}")
+        except Exception as save_error:
+            logger.error(f"Error al guardar respuesta del asistente: {str(save_error)}")
+            # No lanzamos excepción aquí para poder retornar éxito parcial
         
         elapsed_time = time.time() - start_time
         logger.info(f"Mensaje procesado en {elapsed_time:.2f}s")
@@ -299,6 +359,8 @@ def process_incoming_message(sender, message_type, content, message_id=None):
     except Exception as e:
         elapsed_time = time.time() - start_time
         logger.error(f"Error al procesar mensaje después de {elapsed_time:.2f}s: {str(e)}")
+        import traceback
+        logger.error(f"Traza completa del error: {traceback.format_exc()}")
         
         # Enviar mensaje de error al usuario
         error_message = "Lo siento, estamos experimentando dificultades técnicas. Por favor, intenta nuevamente más tarde."

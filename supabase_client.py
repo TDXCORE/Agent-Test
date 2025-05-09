@@ -80,6 +80,22 @@ class MockTable:
                 data["created_at"] = "2025-05-09T20:00:00.000Z"
             if "updated_at" not in data:
                 data["updated_at"] = "2025-05-09T20:00:00.000Z"
+            
+            # Guardar el mensaje real para usarlo en las consultas posteriores
+            if self.table_name == "messages" and "content" in data:
+                # Almacenar el mensaje en una variable de clase para que esté disponible en futuras consultas
+                if not hasattr(MockTable, "_stored_messages"):
+                    MockTable._stored_messages = []
+                
+                # Añadir el mensaje a la lista de mensajes almacenados
+                MockTable._stored_messages.append(data)
+                
+                # Limitar la lista a los últimos 20 mensajes para evitar que crezca demasiado
+                if len(MockTable._stored_messages) > 20:
+                    MockTable._stored_messages = MockTable._stored_messages[-20:]
+                
+                logger.info(f"[MOCK] Mensaje almacenado: {data['role']} - '{data['content']}'")
+            
             logger.info(f"[MOCK] Insertando datos en tabla '{self.table_name}': {data}")
         return self
     
@@ -156,64 +172,70 @@ class MockTable:
                     "external_id": "mock-external-id-specific"
                 }]
             else:
-                # Si buscamos todos los mensajes de una conversación, devolvemos una secuencia de mensajes
-                return [
-                    {
-                        "id": "mock-message-system",
-                        "created_at": "2025-05-09T20:00:00.000Z",
-                        "updated_at": "2025-05-09T20:00:00.000Z",
-                        "conversation_id": conversation_id,
-                        "role": "system",
-                        "content": "Iniciando conversación con un potencial cliente.",
-                        "message_type": "text",
-                        "media_url": None,
-                        "external_id": None
-                    },
-                    {
-                        "id": "mock-message-assistant-1",
-                        "created_at": "2025-05-09T20:01:00.000Z",
-                        "updated_at": "2025-05-09T20:01:00.000Z",
-                        "conversation_id": conversation_id,
-                        "role": "assistant",
-                        "content": "¡Hola! Soy el asistente virtual de nuestra empresa de desarrollo de software. ¿En qué puedo ayudarte hoy?",
-                        "message_type": "text",
-                        "media_url": None,
-                        "external_id": None
-                    },
-                    {
-                        "id": "mock-message-user-1",
-                        "created_at": "2025-05-09T20:02:00.000Z",
-                        "updated_at": "2025-05-09T20:02:00.000Z",
-                        "conversation_id": conversation_id,
-                        "role": "user",
-                        "content": "Hola",
-                        "message_type": "text",
-                        "media_url": None,
-                        "external_id": "mock-external-id-1"
-                    },
-                    {
-                        "id": "mock-message-assistant-2",
-                        "created_at": "2025-05-09T20:03:00.000Z",
-                        "updated_at": "2025-05-09T20:03:00.000Z",
-                        "conversation_id": conversation_id,
-                        "role": "assistant",
-                        "content": "¡Hola! Soy tu asistente virtual especializado en calificar leads para nuestra empresa de desarrollo de software. Estoy aquí para ayudarte a través del proceso de calificación y agendar una cita para discutir tus necesidades.\n\nPara comenzar, necesito tu consentimiento para procesar tus datos personales de acuerdo con el GDPR/LPD. ¿Estás de acuerdo en continuar?",
-                        "message_type": "text",
-                        "media_url": None,
-                        "external_id": None
-                    },
-                    {
-                        "id": "mock-message-user-2",
-                        "created_at": "2025-05-09T20:04:00.000Z",
-                        "updated_at": "2025-05-09T20:04:00.000Z",
-                        "conversation_id": conversation_id,
-                        "role": "user",
-                        "content": "Si",
-                        "message_type": "text",
-                        "media_url": None,
-                        "external_id": "mock-external-id-2"
-                    }
-                ]
+                # Si buscamos todos los mensajes de una conversación, usamos los mensajes almacenados si existen
+                if hasattr(MockTable, "_stored_messages") and MockTable._stored_messages:
+                    # Usar los mensajes almacenados, pero asegurarnos de que tengan el conversation_id correcto
+                    stored_messages = []
+                    for msg in MockTable._stored_messages:
+                        msg_copy = msg.copy()
+                        msg_copy["conversation_id"] = conversation_id
+                        stored_messages.append(msg_copy)
+                    
+                    # Asegurar que haya un mensaje de sistema al inicio
+                    has_system_message = any(msg["role"] == "system" for msg in stored_messages)
+                    if not has_system_message:
+                        stored_messages.insert(0, {
+                            "id": "mock-message-system",
+                            "created_at": "2025-05-09T20:00:00.000Z",
+                            "updated_at": "2025-05-09T20:00:00.000Z",
+                            "conversation_id": conversation_id,
+                            "role": "system",
+                            "content": "Iniciando conversación con un potencial cliente.",
+                            "message_type": "text",
+                            "media_url": None,
+                            "external_id": None
+                        })
+                    
+                    logger.info(f"[MOCK] Retornando {len(stored_messages)} mensajes almacenados")
+                    return stored_messages
+                else:
+                    # Si no hay mensajes almacenados, usar datos predefinidos
+                    logger.info("[MOCK] No hay mensajes almacenados, usando datos predefinidos")
+                    return [
+                        {
+                            "id": "mock-message-system",
+                            "created_at": "2025-05-09T20:00:00.000Z",
+                            "updated_at": "2025-05-09T20:00:00.000Z",
+                            "conversation_id": conversation_id,
+                            "role": "system",
+                            "content": "Iniciando conversación con un potencial cliente.",
+                            "message_type": "text",
+                            "media_url": None,
+                            "external_id": None
+                        },
+                        {
+                            "id": "mock-message-assistant-1",
+                            "created_at": "2025-05-09T20:01:00.000Z",
+                            "updated_at": "2025-05-09T20:01:00.000Z",
+                            "conversation_id": conversation_id,
+                            "role": "assistant",
+                            "content": "¡Hola! Soy el asistente virtual de nuestra empresa de desarrollo de software. ¿En qué puedo ayudarte hoy?",
+                            "message_type": "text",
+                            "media_url": None,
+                            "external_id": None
+                        },
+                        {
+                            "id": "mock-message-user-1",
+                            "created_at": "2025-05-09T20:02:00.000Z",
+                            "updated_at": "2025-05-09T20:02:00.000Z",
+                            "conversation_id": conversation_id,
+                            "role": "user",
+                            "content": "Hola",
+                            "message_type": "text",
+                            "media_url": None,
+                            "external_id": "mock-external-id-1"
+                        }
+                    ]
         
         # Usar datos por defecto si no hay tabla específica
         default_data = {
