@@ -5,7 +5,8 @@ import asyncio
 import pytz
 import logging
 import time
-from typing import List, Dict, Optional, Annotated, Any
+import re
+from typing import List, Dict, Optional, Annotated, Any, Tuple, Union
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from langchain_openai import ChatOpenAI
@@ -57,6 +58,227 @@ load_dotenv()
 # Configurar LangSmith
 os.environ["LANGCHAIN_TRACING_V2"] = "true"
 langsmith_client = Client()
+
+# Funciones auxiliares para manejo de fechas, horas y formato de respuestas
+def convert_12h_to_24h(time_str: str) -> str:
+    """Convierte una hora en formato 12h (AM/PM) a formato 24h.
+    
+    Args:
+        time_str: Hora en formato 12h (ej: "3:30pm", "10:15 AM", "9 p.m.")
+        
+    Returns:
+        Hora en formato 24h (HH:MM)
+    """
+    # Normalizar el formato eliminando espacios y convirtiendo a minúsculas
+    time_str = time_str.lower().strip().replace(" ", "")
+    
+    # Patrones para diferentes formatos de hora
+    patterns = [
+        # 3:30pm, 3:30p.m., 3:30 pm
+        r'(\d{1,2}):(\d{2})\s*(?:p\.?m\.?|pm)',
+        # 3pm, 3p.m., 3 pm
+        r'(\d{1,2})\s*(?:p\.?m\.?|pm)',
+        # 3:30am, 3:30a.m., 3:30 am
+        r'(\d{1,2}):(\d{2})\s*(?:a\.?m\.?|am)',
+        # 3am, 3a.m., 3 am
+        r'(\d{1,2})\s*(?:a\.?m\.?|am)',
+        # 15:30 (ya en formato 24h)
+        r'(\d{1,2}):(\d{2})',
+        # 15h, 15h30
+        r'(\d{1,2})h(?:(\d{2}))?'
+    ]
+    
+    for pattern in patterns:
+        match = re.match(pattern, time_str)
+        if match:
+            groups = match.groups()
+            hour = int(groups[0])
+            minute = int(groups[1]) if len(groups) > 1 and groups[1] else 0
+            
+            # Ajustar hora para PM
+            if 'p' in time_str and hour < 12:
+                hour += 12
+            # Ajustar medianoche para AM
+            elif 'a' in time_str and hour == 12:
+                hour = 0
+                
+            # Formatear como HH:MM
+            return f"{hour:02d}:{minute:02d}"
+    
+    # Si no coincide con ningún patrón, devolver el string original
+    logger.warning(f"No se pudo convertir la hora: {time_str}")
+    return time_str
+
+def parse_date(date_str: str) -> str:
+    """Parsea una fecha en múltiples formatos y la convierte a formato YYYY-MM-DD.
+    
+    Args:
+        date_str: Fecha en varios formatos posibles (DD/MM/YYYY, YYYY-MM-DD, texto en español)
+        
+    Returns:
+        Fecha en formato YYYY-MM-DD o None si no se puede parsear
+    """
+    # Normalizar el formato eliminando espacios extra
+    date_str = date_str.strip().lower()
+    
+    # Obtener fecha actual para referencia
+    today = datetime.datetime.now()
+    bogota_tz = pytz.timezone("America/Bogota")
+    today_local = datetime.datetime.now(bogota_tz).replace(tzinfo=None)
+    
+    # 1. Intentar formatos estándar
+    formats = [
+        "%Y-%m-%d",  # YYYY-MM-DD
+        "%d/%m/%Y",  # DD/MM/YYYY
+        "%d-%m-%Y",  # DD-MM-YYYY
+        "%d.%m.%Y",  # DD.MM.YYYY
+        "%m/%d/%Y",  # MM/DD/YYYY (formato US)
+        "%d/%m/%y",  # DD/MM/YY
+        "%Y/%m/%d"   # YYYY/MM/DD
+    ]
+    
+    for fmt in formats:
+        try:
+            date_obj = datetime.datetime.strptime(date_str, fmt)
+            # Asegurarse de que el año sea razonable (actual o futuro)
+            if date_obj.year < 100:  # Formato de 2 dígitos para el año
+                if date_obj.year < (today.year % 100):
+                    date_obj = date_obj.replace(year=date_obj.year + 2000)
+                else:
+                    date_obj = date_obj.replace(year=date_obj.year + 1900)
+            
+            # Verificar que la fecha no sea en el pasado
+            if date_obj.date() < today.date():
+                logger.warning(f"Fecha en el pasado: {date_str}, ajustando al próximo año")
+                date_obj = date_obj.replace(year=today.year + 1)
+                
+            return date_obj.strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+    
+    # 2. Intentar con descripciones en español
+    descriptions = {
+        "hoy": today_local,
+        "mañana": today_local + datetime.timedelta(days=1),
+        "pasado mañana": today_local + datetime.timedelta(days=2),
+        "próximo lunes": today_local + datetime.timedelta((0 - today_local.weekday() + 7) % 7),
+        "próximo martes": today_local + datetime.timedelta((1 - today_local.weekday() + 7) % 7),
+        "próximo miércoles": today_local + datetime.timedelta((2 - today_local.weekday() + 7) % 7),
+        "próximo jueves": today_local + datetime.timedelta((3 - today_local.weekday() + 7) % 7),
+        "próximo viernes": today_local + datetime.timedelta((4 - today_local.weekday() + 7) % 7),
+        "próximo sábado": today_local + datetime.timedelta((5 - today_local.weekday() + 7) % 7),
+        "próximo domingo": today_local + datetime.timedelta((6 - today_local.weekday() + 7) % 7),
+        "este lunes": today_local + datetime.timedelta((0 - today_local.weekday()) % 7),
+        "este martes": today_local + datetime.timedelta((1 - today_local.weekday()) % 7),
+        "este miércoles": today_local + datetime.timedelta((2 - today_local.weekday()) % 7),
+        "este jueves": today_local + datetime.timedelta((3 - today_local.weekday()) % 7),
+        "este viernes": today_local + datetime.timedelta((4 - today_local.weekday()) % 7),
+        "este sábado": today_local + datetime.timedelta((5 - today_local.weekday()) % 7),
+        "este domingo": today_local + datetime.timedelta((6 - today_local.weekday()) % 7),
+        "lunes": today_local + datetime.timedelta((0 - today_local.weekday() + 7) % 7),
+        "martes": today_local + datetime.timedelta((1 - today_local.weekday() + 7) % 7),
+        "miércoles": today_local + datetime.timedelta((2 - today_local.weekday() + 7) % 7),
+        "jueves": today_local + datetime.timedelta((3 - today_local.weekday() + 7) % 7),
+        "viernes": today_local + datetime.timedelta((4 - today_local.weekday() + 7) % 7),
+        "sábado": today_local + datetime.timedelta((5 - today_local.weekday() + 7) % 7),
+        "domingo": today_local + datetime.timedelta((6 - today_local.weekday() + 7) % 7),
+        "lunes próximo": today_local + datetime.timedelta((0 - today_local.weekday() + 7) % 7),
+        "martes próximo": today_local + datetime.timedelta((1 - today_local.weekday() + 7) % 7),
+        "miércoles próximo": today_local + datetime.timedelta((2 - today_local.weekday() + 7) % 7),
+        "jueves próximo": today_local + datetime.timedelta((3 - today_local.weekday() + 7) % 7),
+        "viernes próximo": today_local + datetime.timedelta((4 - today_local.weekday() + 7) % 7),
+        "sábado próximo": today_local + datetime.timedelta((5 - today_local.weekday() + 7) % 7),
+        "domingo próximo": today_local + datetime.timedelta((6 - today_local.weekday() + 7) % 7),
+        "en una semana": today_local + datetime.timedelta(days=7),
+        "en dos semanas": today_local + datetime.timedelta(days=14),
+        "próxima semana": today_local + datetime.timedelta(days=7),
+        "siguiente semana": today_local + datetime.timedelta(days=7)
+    }
+    
+    # Buscar coincidencias exactas
+    if date_str in descriptions:
+        return descriptions[date_str].strftime("%Y-%m-%d")
+    
+    # Buscar coincidencias parciales
+    for key, value in descriptions.items():
+        if key in date_str:
+            return value.strftime("%Y-%m-%d")
+    
+    # 3. Intentar extraer patrones de fecha con regex
+    # Ejemplo: "el 15 de mayo" o "15 de mayo"
+    day_month_pattern = r'(?:el\s+)?(\d{1,2})\s+(?:de\s+)?(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)'
+    match = re.search(day_month_pattern, date_str)
+    if match:
+        day = int(match.group(1))
+        month_names = {
+            "enero": 1, "febrero": 2, "marzo": 3, "abril": 4, "mayo": 5, "junio": 6,
+            "julio": 7, "agosto": 8, "septiembre": 9, "octubre": 10, "noviembre": 11, "diciembre": 12
+        }
+        month = month_names[match.group(2)]
+        year = today.year
+        
+        # Si la fecha ya pasó este año, usar el próximo año
+        date_obj = datetime.datetime(year, month, day)
+        if date_obj.date() < today.date():
+            date_obj = date_obj.replace(year=year + 1)
+            
+        return date_obj.strftime("%Y-%m-%d")
+    
+    # Si no se pudo parsear, devolver None
+    logger.warning(f"No se pudo parsear la fecha: {date_str}")
+    return None
+
+def format_response(message: str, response_type: str = "general") -> str:
+    """Formatea una respuesta con emojis y Markdown para mejorar la presentación visual.
+    
+    Args:
+        message: Mensaje a formatear
+        response_type: Tipo de respuesta para aplicar formato específico
+        
+    Returns:
+        Mensaje formateado con emojis y Markdown
+    """
+    # Emojis por tipo de respuesta
+    emojis = {
+        "consent": "✅",
+        "personal_data": "👤",
+        "bant": "💼",
+        "requirements": "📋",
+        "meeting": "📅",
+        "available_slots": "🕒",
+        "meeting_scheduled": "✅📆",
+        "meeting_rescheduled": "🔄📆",
+        "meeting_cancelled": "❌📆",
+        "error": "❗",
+        "warning": "⚠️",
+        "success": "✅",
+        "general": "💬"
+    }
+    
+    # Obtener el emoji adecuado
+    emoji = emojis.get(response_type, emojis["general"])
+    
+    # Reemplazar asteriscos por viñetas reales
+    message = re.sub(r'^\s*\*\s+', '• ', message, flags=re.MULTILINE)
+    
+    # Añadir negrita a títulos y subtítulos
+    message = re.sub(r'^([A-Za-zÁÉÍÓÚáéíóúÑñ][A-Za-zÁÉÍÓÚáéíóúÑñ\s]+:)', r'**\1**', message, flags=re.MULTILINE)
+    
+    # Formatear fechas y horas para destacarlas
+    message = re.sub(r'(\d{1,2}/\d{1,2}/\d{4})', r'**\1**', message)
+    message = re.sub(r'(\d{1,2}:\d{2})', r'**\1**', message)
+    
+    # Añadir el emoji al principio del mensaje
+    formatted_message = f"{emoji} {message}"
+    
+    # Asegurar que el mensaje no sea demasiado largo
+    # Dividir en párrafos y mantener solo los esenciales
+    paragraphs = formatted_message.split('\n\n')
+    if len(paragraphs) > 5:
+        # Mantener el primer párrafo (introducción) y los últimos 3 (conclusión/acción)
+        formatted_message = '\n\n'.join([paragraphs[0]] + paragraphs[-3:])
+    
+    return formatted_message
 
 # Configuración del agente
 
@@ -122,9 +344,9 @@ def process_consent(response: str) -> str:
                 })
     
     if consent_given:
-        return "Gracias por aceptar nuestros términos de procesamiento de datos."
+        return format_response("Gracias por aceptar nuestros términos de procesamiento de datos.", "consent")
     else:
-        return "Entendido. Sin su consentimiento, no podemos continuar con el proceso."
+        return format_response("Entendido. Sin su consentimiento, no podemos continuar con el proceso.", "warning")
 
 @tool
 def save_personal_data(name: str, company: Optional[str], email: str, phone: str) -> str:
@@ -162,7 +384,7 @@ def save_personal_data(name: str, company: Optional[str], email: str, phone: str
                 "current_step": "bant"
             })
     
-    return f"Datos guardados: {name}, {company}, {email}, {phone}"
+    return format_response(f"Datos guardados: {name}, {company}, {email}, {phone}", "personal_data")
 
 @tool
 def save_bant_data(budget: str, authority: str, need: str, timeline: str) -> str:
@@ -205,7 +427,7 @@ def save_bant_data(budget: str, authority: str, need: str, timeline: str) -> str
                         "current_step": "requirements"
                     })
     
-    return f"Datos BANT guardados: Presupuesto: {budget}, Autoridad: {authority}, Necesidad: {need}, Plazo: {timeline}"
+    return format_response(f"Datos BANT guardados: Presupuesto: {budget}, Autoridad: {authority}, Necesidad: {need}, Plazo: {timeline}", "bant")
 
 @tool
 def save_requirements(app_type: str, core_features: str, integrations: str, deadline: str) -> str:
@@ -256,17 +478,17 @@ def save_requirements(app_type: str, core_features: str, integrations: str, dead
                         "current_step": "meeting"
                     })
     
-    return f"Requerimientos guardados: Tipo: {app_type}, Características: {core_features}, Integraciones: {integrations}, Fecha límite: {deadline}"
+    return format_response(f"Requerimientos guardados: Tipo: {app_type}, Características: {core_features}, Integraciones: {integrations}, Fecha límite: {deadline}", "requirements")
 
 @tool
 def get_available_slots(preferred_date: Optional[str] = None) -> str:
     """Obtiene slots disponibles para reuniones en horario de oficina (L-V, 8am-5pm).
     
     Args:
-        preferred_date: Fecha preferida (YYYY-MM-DD, opcional)
+        preferred_date: Fecha preferida (múltiples formatos aceptados, opcional)
         
     Returns:
-        Lista de slots disponibles
+        Lista de slots disponibles con formato visual mejorado
     """
     try:
         # Determinar rango de fechas a consultar
@@ -285,34 +507,42 @@ def get_available_slots(preferred_date: Optional[str] = None) -> str:
         response_message = ""
         
         if preferred_date:
-            # Si hay una fecha preferida, verificar si es válida
-            try:
-                start_date = datetime.datetime.strptime(preferred_date, "%Y-%m-%d")
-                
-                # SIEMPRE verificar que el año sea actual o futuro
-                if start_date.year != current_year:
-                    logger.warning(f"Fecha preferida {preferred_date} tiene año {start_date.year} diferente al actual {current_year}")
-                    start_date = start_date.replace(year=current_year)
-                    logger.info(f"Fecha corregida a {start_date.strftime('%Y-%m-%d')}")
-                
-                start_date = bogota_tz.localize(start_date)
-                
-                # Si la fecha es anterior a la fecha mínima, informar al usuario
-                if start_date < min_date:
-                    response_message = f"Lo siento, no es posible agendar reuniones para la fecha solicitada. Las reuniones deben agendarse con al menos 48 horas de anticipación (a partir del {min_date_str}).\n\nA continuación te muestro los horarios disponibles más próximos:\n\n"
+            # Intentar parsear la fecha en múltiples formatos
+            parsed_date = parse_date(preferred_date)
+            
+            if parsed_date:
+                try:
+                    start_date = datetime.datetime.strptime(parsed_date, "%Y-%m-%d")
+                    
+                    # SIEMPRE verificar que el año sea actual o futuro
+                    if start_date.year != current_year:
+                        logger.warning(f"Fecha preferida {parsed_date} tiene año {start_date.year} diferente al actual {current_year}")
+                        start_date = start_date.replace(year=current_year)
+                        logger.info(f"Fecha corregida a {start_date.strftime('%Y-%m-%d')}")
+                    
+                    start_date = bogota_tz.localize(start_date)
+                    
+                    # Si la fecha es anterior a la fecha mínima, informar al usuario
+                    if start_date < min_date:
+                        response_message = f"No es posible agendar reuniones para la fecha solicitada. Las reuniones deben agendarse con al menos 48 horas de anticipación (a partir del {min_date_str}).\n\nA continuación te muestro los horarios disponibles más próximos:"
+                        # Usar la fecha mínima para consultar disponibilidad
+                        start_date = min_date
+                    else:
+                        response_message = f"Horarios disponibles para el {start_date.strftime('%d/%m/%Y')} y días siguientes:"
+                except ValueError:
+                    logger.error(f"Error al procesar la fecha parseada: {parsed_date}")
+                    response_message = "No pude interpretar correctamente el formato de fecha. A continuación te muestro los horarios disponibles más próximos:"
                     # Usar la fecha mínima para consultar disponibilidad
                     start_date = min_date
-                else:
-                    response_message = f"Horarios disponibles para el {start_date.strftime('%d/%m/%Y')} y días siguientes:\n\n"
-            except ValueError:
-                logger.error(f"Formato de fecha inválido: {preferred_date}")
-                response_message = "El formato de fecha proporcionado no es válido. Por favor, utiliza el formato YYYY-MM-DD (por ejemplo, 2025-05-15).\n\nA continuación te muestro los horarios disponibles más próximos:\n\n"
+            else:
+                logger.error(f"No se pudo parsear la fecha: {preferred_date}")
+                response_message = "No pude interpretar el formato de fecha proporcionado. A continuación te muestro los horarios disponibles más próximos:"
                 # Usar la fecha mínima para consultar disponibilidad
                 start_date = min_date
         else:
             # Si no hay fecha preferida, empezar desde la fecha mínima (48h después)
             start_date = min_date
-            response_message = f"Horarios disponibles a partir del {min_date_str}:\n\n"
+            response_message = f"Horarios disponibles a partir del {min_date_str}:"
         
         # Log para depuración
         logger.info(f"Consultando slots disponibles desde {start_date.strftime('%Y-%m-%d')}")
@@ -338,9 +568,10 @@ def get_available_slots(preferred_date: Optional[str] = None) -> str:
                 available_slots = outlook_get_slots(start_date=next_start_date, days=5)
             
             if available_slots:
-                response_message += f"No hay horarios disponibles para las fechas solicitadas. Te muestro los horarios disponibles a partir del {next_start_date.strftime('%d/%m/%Y')}:\n\n"
+                response_message += f"\n\nNo hay horarios disponibles para las fechas solicitadas. Te muestro los horarios disponibles a partir del {next_start_date.strftime('%d/%m/%Y')}:"
             else:
-                return "Lo siento, no se encontraron horarios disponibles para las próximas dos semanas. Por favor, contacta directamente con nuestro equipo al correo soporte@tdxcore.com para agendar una reunión personalizada."
+                error_msg = "No se encontraron horarios disponibles para las próximas dos semanas. Por favor, contacta directamente con nuestro equipo al correo soporte@tdxcore.com para agendar una reunión personalizada."
+                return format_response(error_msg, "warning")
         
         # Verificar que todos los slots sean de fechas futuras
         valid_slots = []
@@ -358,14 +589,6 @@ def get_available_slots(preferred_date: Optional[str] = None) -> str:
         # Usar solo slots válidos
         available_slots = valid_slots
         
-        # Formatear la respuesta para el usuario
-        formatted_slots = []
-        for slot in available_slots:
-            date_obj = datetime.datetime.strptime(slot["date"], "%Y-%m-%d")
-            day_name = date_obj.strftime("%A")  # Nombre del día
-            date_formatted = date_obj.strftime("%d/%m/%Y")
-            formatted_slots.append(f"{day_name} {date_formatted} a las {slot['time']}")
-        
         # Agrupar slots por fecha para mejor visualización
         slots_by_date = {}
         for slot in available_slots:
@@ -374,22 +597,27 @@ def get_available_slots(preferred_date: Optional[str] = None) -> str:
                 slots_by_date[date] = []
             slots_by_date[date].append(slot["time"])
         
-        # Formatear por fecha
+        # Formatear por fecha con mejor presentación visual
         formatted_by_date = []
         for date, times in slots_by_date.items():
             date_obj = datetime.datetime.strptime(date, "%Y-%m-%d")
             day_name = date_obj.strftime("%A")  # Nombre del día
             date_formatted = date_obj.strftime("%d/%m/%Y")
-            times_str = ", ".join(times)
-            formatted_by_date.append(f"- {day_name} {date_formatted}: {times_str}")
+            times_str = ", ".join([f"**{time}**" for time in times])
+            formatted_by_date.append(f"• **{day_name} {date_formatted}**: {times_str}")
         
-        return response_message + "\n".join(formatted_by_date) + "\n\nPor favor, indícame qué fecha y hora te conviene más para agendar la reunión."
+        # Mensaje final con formato mejorado
+        final_message = f"{response_message}\n\n{chr(10).join(formatted_by_date)}\n\nPor favor, indícame qué fecha y hora te conviene más para agendar la reunión."
+        
+        # Aplicar formato visual con emojis
+        return format_response(final_message, "available_slots")
     
     except Exception as e:
         logger.error(f"Error al consultar disponibilidad: {str(e)}")
         import traceback
         logger.error(f"Traza completa: {traceback.format_exc()}")
-        return f"Lo siento, hubo un problema al consultar la disponibilidad: {str(e)}. Por favor, intenta nuevamente o escribe una fecha específica en formato YYYY-MM-DD (por ejemplo, 2025-05-15)."
+        error_msg = f"Hubo un problema al consultar la disponibilidad. Por favor, intenta nuevamente o indica una fecha específica (por ejemplo, 'próximo lunes' o '15 de mayo')."
+        return format_response(error_msg, "error")
 
 @tool
 def schedule_meeting(email: str, date: Optional[str] = None, time: Optional[str] = None, duration: int = 60) -> str:
@@ -397,37 +625,51 @@ def schedule_meeting(email: str, date: Optional[str] = None, time: Optional[str]
     
     Args:
         email: Correo electrónico del cliente
-        date: Fecha propuesta (YYYY-MM-DD, opcional)
-        time: Hora propuesta (HH:MM, opcional)
+        date: Fecha propuesta (múltiples formatos aceptados, opcional)
+        time: Hora propuesta (formato 12h o 24h, opcional)
         duration: Duración en minutos (por defecto 60)
         
     Returns:
-        Mensaje de confirmación o lista de slots disponibles
+        Mensaje de confirmación o lista de slots disponibles con formato visual mejorado
     """
     try:
         # Validar el formato del correo electrónico
         if not email or "@" not in email:
-            return "Por favor, proporcione un correo electrónico válido."
+            return format_response("Por favor, proporciona un correo electrónico válido.", "error")
         
         # Si no se proporciona fecha o hora, mostrar slots disponibles
         if not date or not time:
             return get_available_slots(date)
         
-        # Validar el formato de la fecha
-        try:
-            date_obj = datetime.datetime.strptime(date, "%Y-%m-%d")
-        except ValueError:
-            return "Por favor, proporcione la fecha en formato YYYY-MM-DD (por ejemplo, 2025-05-15)."
+        # Parsear la fecha en múltiples formatos
+        parsed_date = parse_date(date)
+        if not parsed_date:
+            error_msg = f"No pude interpretar el formato de fecha '{date}'. Por favor, indica una fecha válida como '15/05/2025', 'próximo lunes' o '15 de mayo'."
+            return format_response(error_msg, "error")
+        
+        # Convertir hora de formato 12h a 24h si es necesario
+        parsed_time = time
+        if re.search(r'[aApP]\.?[mM]\.?', time) or re.search(r'\d+\s*[aApP]\.?[mM]\.?', time):
+            parsed_time = convert_12h_to_24h(time)
+            logger.info(f"Hora convertida de formato 12h a 24h: {time} -> {parsed_time}")
         
         # Validar el formato de la hora
         try:
-            time_obj = datetime.datetime.strptime(time, "%H:%M")
+            time_obj = datetime.datetime.strptime(parsed_time, "%H:%M")
         except ValueError:
-            return "Por favor, proporcione la hora en formato HH:MM (por ejemplo, 14:30)."
+            error_msg = f"No pude interpretar el formato de hora '{time}'. Por favor, indica una hora válida como '14:30', '2:30 PM' o '3pm'."
+            return format_response(error_msg, "error")
         
         # Validar que la duración sea razonable
         if duration < 15 or duration > 180:
-            return "La duración debe estar entre 15 y 180 minutos."
+            return format_response("La duración debe estar entre 15 y 180 minutos.", "warning")
+        
+        # Validar el formato de la fecha
+        try:
+            date_obj = datetime.datetime.strptime(parsed_date, "%Y-%m-%d")
+        except ValueError:
+            error_msg = f"Error al procesar la fecha parseada: {parsed_date}. Por favor, intenta con otro formato."
+            return format_response(error_msg, "error")
         
         # Combinar fecha y hora
         bogota_tz = pytz.timezone("America/Bogota")
@@ -441,10 +683,8 @@ def schedule_meeting(email: str, date: Optional[str] = None, time: Optional[str]
         min_date = datetime.datetime.now(bogota_tz) + datetime.timedelta(days=2)
         if start_datetime < min_date:
             # En lugar de solo rechazar, ofrecer alternativas
-            message = f"Lo siento, las reuniones deben agendarse con al menos 48 horas de anticipación (a partir del {min_date.strftime('%d/%m/%Y')}).\n\n"
-            message += "A continuación te muestro los horarios disponibles más próximos:\n\n"
-            message += get_available_slots(None)  # Obtener slots disponibles a partir de la fecha mínima
-            return message
+            message = f"Las reuniones deben agendarse con al menos 48 horas de anticipación (a partir del {min_date.strftime('%d/%m/%Y')}).\n\nA continuación te muestro los horarios disponibles más próximos:"
+            return format_response(message, "warning") + "\n\n" + get_available_slots(None)
         
         # Verificar que sea un día laborable (lunes a viernes)
         if start_datetime.weekday() >= 5:  # 5 y 6 son sábado y domingo
@@ -453,17 +693,13 @@ def schedule_meeting(email: str, date: Optional[str] = None, time: Optional[str]
             while next_workday.weekday() >= 5:
                 next_workday += datetime.timedelta(days=1)
             
-            message = f"Lo siento, las reuniones solo pueden agendarse en días laborables (lunes a viernes). El {start_datetime.strftime('%d/%m/%Y')} es {start_datetime.strftime('%A')}.\n\n"
-            message += f"Te sugiero agendar para el próximo día laborable ({next_workday.strftime('%A')} {next_workday.strftime('%d/%m/%Y')}) o elegir entre los siguientes horarios disponibles:\n\n"
-            message += get_available_slots(next_workday.strftime("%Y-%m-%d"))
-            return message
+            message = f"Las reuniones solo pueden agendarse en días laborables (lunes a viernes). El {start_datetime.strftime('%d/%m/%Y')} es {start_datetime.strftime('%A')}.\n\nTe sugiero agendar para el próximo día laborable ({next_workday.strftime('%A')} {next_workday.strftime('%d/%m/%Y')}) o elegir entre los siguientes horarios disponibles:"
+            return format_response(message, "warning") + "\n\n" + get_available_slots(next_workday.strftime("%Y-%m-%d"))
         
         # Verificar que esté dentro del horario de oficina (8am-5pm)
         if start_datetime.hour < 8 or start_datetime.hour >= 17:
-            message = f"Lo siento, las reuniones solo pueden agendarse en horario de oficina (8:00 - 17:00). La hora solicitada ({time}) está fuera de este rango.\n\n"
-            message += "Te muestro los horarios disponibles para la fecha seleccionada:\n\n"
-            message += get_available_slots(date)
-            return message
+            message = f"Las reuniones solo pueden agendarse en horario de oficina (8:00 - 17:00). La hora solicitada ({parsed_time}) está fuera de este rango.\n\nTe muestro los horarios disponibles para la fecha seleccionada:"
+            return format_response(message, "warning") + "\n\n" + get_available_slots(parsed_date)
         
         # Verificar disponibilidad para el horario solicitado
         available_slots = outlook_get_slots(
@@ -481,10 +717,8 @@ def schedule_meeting(email: str, date: Optional[str] = None, time: Optional[str]
                 break
         
         if not slot_available:
-            message = f"Lo siento, el horario solicitado ({date} {time}) no está disponible.\n\n"
-            message += "Te muestro los horarios disponibles para la fecha seleccionada y días cercanos:\n\n"
-            message += get_available_slots(date)
-            return message
+            message = f"El horario solicitado ({parsed_date} {parsed_time}) no está disponible.\n\nTe muestro los horarios disponibles para la fecha seleccionada y días cercanos:"
+            return format_response(message, "warning") + "\n\n" + get_available_slots(parsed_date)
         
         # Preparar el título y descripción de la reunión
         meeting_subject = "Reunión de consultoría - Desarrollo de software"
@@ -511,7 +745,7 @@ def schedule_meeting(email: str, date: Optional[str] = None, time: Optional[str]
         )
         
         if not meeting:
-            return "No se pudo agendar la reunión. Por favor, intente más tarde."
+            return format_response("No se pudo agendar la reunión. Por favor, intenta más tarde.", "error")
             
         # Guardar la reunión en la base de datos
         # Obtener thread_id del contexto
@@ -549,16 +783,20 @@ def schedule_meeting(email: str, date: Optional[str] = None, time: Optional[str]
         formatted_time = start_datetime.strftime("%H:%M")
         
         # Preparar respuesta
-        response = f"Reunión agendada exitosamente para el {formatted_date} a las {formatted_time}. Se ha enviado una invitación a {email}."
+        response = f"Reunión agendada exitosamente para el {formatted_date} a las {formatted_time}.\n\nSe ha enviado una invitación a {email}."
         
         # Añadir enlace de la reunión si está disponible
         if meeting.get("online_meeting") and meeting["online_meeting"].get("join_url"):
-            response += f"\n\nPuede unirse a la reunión a través de este enlace: {meeting['online_meeting']['join_url']}"
+            response += f"\n\nPuedes unirte a la reunión a través de este enlace:\n{meeting['online_meeting']['join_url']}"
         
-        return response
+        return format_response(response, "meeting_scheduled")
     
     except Exception as e:
-        return f"Error al agendar la reunión: {str(e)}. Por favor, intente más tarde o contacte con soporte."
+        logger.error(f"Error al agendar la reunión: {str(e)}")
+        import traceback
+        logger.error(f"Traza completa: {traceback.format_exc()}")
+        error_msg = "Hubo un problema al agendar la reunión. Por favor, intenta nuevamente o contacta con nuestro equipo de soporte."
+        return format_response(error_msg, "error")
 
 @tool
 def find_meetings(subject_contains: str) -> str:
@@ -633,25 +871,43 @@ def reschedule_meeting(meeting_id: str, new_date: str, new_time: str, duration: 
     
     Args:
         meeting_id: ID de la reunión a reprogramar
-        new_date: Nueva fecha (YYYY-MM-DD)
-        new_time: Nueva hora (HH:MM)
+        new_date: Nueva fecha (múltiples formatos aceptados)
+        new_time: Nueva hora (formato 12h o 24h)
         duration: Nueva duración en minutos (opcional)
         
     Returns:
-        Mensaje de confirmación
+        Mensaje de confirmación con formato visual mejorado
     """
     try:
-        # Validar el formato de la fecha
-        try:
-            date_obj = datetime.datetime.strptime(new_date, "%Y-%m-%d")
-        except ValueError:
-            return "Por favor, proporcione la fecha en formato YYYY-MM-DD (por ejemplo, 2025-05-15)."
+        # Validar el ID de la reunión
+        if not meeting_id:
+            return format_response("Por favor, proporciona un ID de reunión válido.", "error")
+        
+        # Parsear la fecha en múltiples formatos
+        parsed_date = parse_date(new_date)
+        if not parsed_date:
+            error_msg = f"No pude interpretar el formato de fecha '{new_date}'. Por favor, indica una fecha válida como '15/05/2025', 'próximo lunes' o '15 de mayo'."
+            return format_response(error_msg, "error")
+        
+        # Convertir hora de formato 12h a 24h si es necesario
+        parsed_time = new_time
+        if re.search(r'[aApP]\.?[mM]\.?', new_time) or re.search(r'\d+\s*[aApP]\.?[mM]\.?', new_time):
+            parsed_time = convert_12h_to_24h(new_time)
+            logger.info(f"Hora convertida de formato 12h a 24h: {new_time} -> {parsed_time}")
         
         # Validar el formato de la hora
         try:
-            time_obj = datetime.datetime.strptime(new_time, "%H:%M")
+            time_obj = datetime.datetime.strptime(parsed_time, "%H:%M")
         except ValueError:
-            return "Por favor, proporcione la hora en formato HH:MM (por ejemplo, 14:30)."
+            error_msg = f"No pude interpretar el formato de hora '{new_time}'. Por favor, indica una hora válida como '14:30', '2:30 PM' o '3pm'."
+            return format_response(error_msg, "error")
+        
+        # Validar el formato de la fecha
+        try:
+            date_obj = datetime.datetime.strptime(parsed_date, "%Y-%m-%d")
+        except ValueError:
+            error_msg = f"Error al procesar la fecha parseada: {parsed_date}. Por favor, intenta con otro formato."
+            return format_response(error_msg, "error")
         
         # Combinar fecha y hora
         bogota_tz = pytz.timezone("America/Bogota")
@@ -665,10 +921,8 @@ def reschedule_meeting(meeting_id: str, new_date: str, new_time: str, duration: 
         min_date = datetime.datetime.now(bogota_tz) + datetime.timedelta(days=2)
         if new_start_datetime < min_date:
             # En lugar de solo rechazar, ofrecer alternativas
-            message = f"Lo siento, las reuniones deben reprogramarse con al menos 48 horas de anticipación (a partir del {min_date.strftime('%d/%m/%Y')}).\n\n"
-            message += "A continuación te muestro los horarios disponibles más próximos:\n\n"
-            message += get_available_slots(None)  # Obtener slots disponibles a partir de la fecha mínima
-            return message
+            message = f"Las reuniones deben reprogramarse con al menos 48 horas de anticipación (a partir del {min_date.strftime('%d/%m/%Y')}).\n\nA continuación te muestro los horarios disponibles más próximos:"
+            return format_response(message, "warning") + "\n\n" + get_available_slots(None)
         
         # Verificar que sea un día laborable (lunes a viernes)
         if new_start_datetime.weekday() >= 5:  # 5 y 6 son sábado y domingo
@@ -677,17 +931,13 @@ def reschedule_meeting(meeting_id: str, new_date: str, new_time: str, duration: 
             while next_workday.weekday() >= 5:
                 next_workday += datetime.timedelta(days=1)
             
-            message = f"Lo siento, las reuniones solo pueden agendarse en días laborables (lunes a viernes). El {new_start_datetime.strftime('%d/%m/%Y')} es {new_start_datetime.strftime('%A')}.\n\n"
-            message += f"Te sugiero reprogramar para el próximo día laborable ({next_workday.strftime('%A')} {next_workday.strftime('%d/%m/%Y')}) o elegir entre los siguientes horarios disponibles:\n\n"
-            message += get_available_slots(next_workday.strftime("%Y-%m-%d"))
-            return message
+            message = f"Las reuniones solo pueden agendarse en días laborables (lunes a viernes). El {new_start_datetime.strftime('%d/%m/%Y')} es {new_start_datetime.strftime('%A')}.\n\nTe sugiero reprogramar para el próximo día laborable ({next_workday.strftime('%A')} {next_workday.strftime('%d/%m/%Y')}) o elegir entre los siguientes horarios disponibles:"
+            return format_response(message, "warning") + "\n\n" + get_available_slots(next_workday.strftime("%Y-%m-%d"))
         
         # Verificar que esté dentro del horario de oficina (8am-5pm)
         if new_start_datetime.hour < 8 or new_start_datetime.hour >= 17:
-            message = f"Lo siento, las reuniones solo pueden agendarse en horario de oficina (8:00 - 17:00). La hora solicitada ({new_time}) está fuera de este rango.\n\n"
-            message += "Te muestro los horarios disponibles para la fecha seleccionada:\n\n"
-            message += get_available_slots(new_date)
-            return message
+            message = f"Las reuniones solo pueden agendarse en horario de oficina (8:00 - 17:00). La hora solicitada ({parsed_time}) está fuera de este rango.\n\nTe muestro los horarios disponibles para la fecha seleccionada:"
+            return format_response(message, "warning") + "\n\n" + get_available_slots(parsed_date)
         
         # Verificar disponibilidad para el horario solicitado
         available_slots = outlook_get_slots(
@@ -705,10 +955,8 @@ def reschedule_meeting(meeting_id: str, new_date: str, new_time: str, duration: 
                 break
         
         if not slot_available:
-            message = f"Lo siento, el horario solicitado ({new_date} {new_time}) no está disponible para reprogramar la reunión.\n\n"
-            message += "Te muestro los horarios disponibles para la fecha seleccionada y días cercanos:\n\n"
-            message += get_available_slots(new_date)
-            return message
+            message = f"El horario solicitado ({parsed_date} {parsed_time}) no está disponible para reprogramar la reunión.\n\nTe muestro los horarios disponibles para la fecha seleccionada y días cercanos:"
+            return format_response(message, "warning") + "\n\n" + get_available_slots(parsed_date)
         
         # Reprogramar la reunión usando la función de outlook.py
         updated_meeting = outlook_reschedule(
@@ -718,7 +966,7 @@ def reschedule_meeting(meeting_id: str, new_date: str, new_time: str, duration: 
         )
         
         if not updated_meeting:
-            return "No se pudo reprogramar la reunión. Por favor, verifique el ID de la reunión e intente más tarde."
+            return format_response("No se pudo reprogramar la reunión. Por favor, verifica el ID de la reunión e intenta más tarde.", "error")
             
         # Actualizar estado en la base de datos
         meeting_in_db = get_meeting_by_outlook_id(meeting_id)
@@ -735,12 +983,16 @@ def reschedule_meeting(meeting_id: str, new_date: str, new_time: str, duration: 
         
         # Añadir enlace de la reunión si está disponible
         if updated_meeting.get("online_meeting") and updated_meeting["online_meeting"].get("join_url"):
-            response += f"\n\nPuede unirse a la reunión a través de este enlace: {updated_meeting['online_meeting']['join_url']}"
+            response += f"\n\nPuedes unirte a la reunión a través de este enlace:\n{updated_meeting['online_meeting']['join_url']}"
         
-        return response
+        return format_response(response, "meeting_rescheduled")
     
     except Exception as e:
-        return f"Error al reprogramar la reunión: {str(e)}. Por favor, intente más tarde o contacte con soporte."
+        logger.error(f"Error al reprogramar la reunión: {str(e)}")
+        import traceback
+        logger.error(f"Traza completa: {traceback.format_exc()}")
+        error_msg = "Hubo un problema al reprogramar la reunión. Por favor, intenta nuevamente o contacta con nuestro equipo de soporte."
+        return format_response(error_msg, "error")
 
 # Función principal para crear el agente
 def create_lead_qualification_agent():
@@ -776,73 +1028,155 @@ def create_lead_qualification_agent():
         checkpointer=checkpointer,
         state_schema=LeadQualificationState,
         prompt="""
-        Eres un asistente virtual especializado en calificar leads para una empresa de desarrollo de software.
-        Tu objetivo es obtener consentimiento GDPR, recolectar datos del cliente, calificar el lead usando el framework BANT,
-        levantar requerimientos funcionales y agendar una cita.
-        
+        COMPORTAMIENTO COMO EXPERTO TECNOLÓGICO Y ASESOR COMERCIAL
+
+        ROL Y PERSONALIDAD
+        Eres un experto tecnológico y asesor comercial especializado exclusivamente en desarrollo de software a medida para empresas. Tu misión es guiar a los prospectos a través del proceso de calificación y descubrimiento, demostrando un profundo conocimiento técnico mientras evalúas sus necesidades comerciales.
+
+        Actitud: Proyecta seguridad, profesionalismo y empatía comercial
+        Conocimiento: Demuestra comprensión avanzada de tecnologías y mejores prácticas de desarrollo
+        Enfoque: Orientado a soluciones que resuelvan problemas de negocio reales
+        Comunicación: Clara, concisa y adaptada al nivel técnico del interlocutor
+
+        ÁREAS DE ESPECIALIZACIÓN (RESPONDE SOLO SOBRE ESTOS TEMAS)
+
+        Desarrollo de software a medida:
+        • Aplicaciones web empresariales
+        • Aplicaciones móviles (iOS/Android)
+        • Sistemas de gestión internos
+        • Integraciones entre sistemas
+        • Automatización de procesos
+
+        Tecnologías y frameworks modernos:
+        • Arquitecturas de microservicios
+        • Desarrollo cloud-native
+        • Tecnologías frontend (React, Angular, Vue)
+        • Tecnologías backend (.NET, Node.js, Python, Java)
+        • Bases de datos (SQL, NoSQL)
+
+        Metodologías de trabajo:
+        • Metodologías ágiles (Scrum, Kanban)
+        • Proceso de discovery y definición de requerimientos
+        • Etapas de un proyecto de desarrollo
+        • Ciclos de prueba y control de calidad
+
+        Aspectos comerciales:
+        • Evaluación BANT (Budget, Authority, Need, Timeline)
+        • ROI de proyectos tecnológicos
+        • Modelos de contratación y colaboración
+        • Fases de implementación y plazos realistas
+
+        ESTILO DE COMUNICACIÓN
+        • Utiliza emojis relevantes para hacer tus mensajes más atractivos visualmente
+        • Aplica formato Markdown para destacar información importante (negritas, viñetas)
+        • Mantén tus respuestas concisas y directas, evitando textos largos y aburridos
+        • Estructura tus mensajes en secciones claras y fáciles de leer
+        • Prioriza la información esencial y evita detalles innecesarios
+        • Adapta tu lenguaje técnico al nivel de conocimiento del interlocutor
+
+        PROCESO DE CALIFICACIÓN DE LEADS
         Sigue estos pasos en orden:
         1. Solicitar consentimiento GDPR/LPD para el procesamiento de datos personales
         2. Recolectar datos personales (nombre, empresa, correo, teléfono)
         3. Calificar el lead usando BANT:
-           - Budget (Presupuesto): ¿Cuánto está dispuesto a invertir?
-           - Authority (Autoridad): ¿Es la persona que toma decisiones?
-           - Need (Necesidad): ¿Qué problema necesita resolver?
-           - Timeline (Tiempo): ¿Cuándo necesita implementar la solución?
+           • Budget (Presupuesto): ¿Cuánto está dispuesto a invertir?
+           • Authority (Autoridad): ¿Es la persona que toma decisiones?
+           • Need (Necesidad): ¿Qué problema necesita resolver?
+           • Timeline (Tiempo): ¿Cuándo necesita implementar la solución?
         4. Levantar requerimientos funcionales:
-           - Tipo de aplicación (web, móvil, escritorio)
-           - Características principales
-           - Integraciones necesarias
-           - Fecha límite
+           • Tipo de aplicación (web, móvil, escritorio)
+           • Características principales
+           • Integraciones necesarias
+           • Fecha límite
         5. Agendar una cita para discutir la propuesta:
-           - Pregunta si el cliente tiene alguna preferencia de fecha
-           - Si no tiene preferencia o quiere ver opciones, usa get_available_slots para mostrar horarios disponibles
-           - Si ya tiene una fecha y hora específica, verifica disponibilidad para esa fecha
-           - Confirma la fecha y hora seleccionada
-           - Usa schedule_meeting con el correo del cliente, la fecha (YYYY-MM-DD), la hora (HH:MM) y duración
-           - Confirma la cita agendada y proporciona los detalles
-        
-        Sé amable, profesional y conciso en tus interacciones. Guía al usuario a través de cada paso
-        y utiliza las herramientas disponibles para guardar la información proporcionada.
-        
-        Importante para el agendamiento de citas:
-        - Usa el formato correcto para fechas (YYYY-MM-DD) y horas (HH:MM)
-        - Si el cliente no proporciona una fecha específica, muestra opciones de horarios disponibles
-        - Confirma siempre los detalles de la cita antes de agendarla
-        - Después de agendar, proporciona confirmación clara con los detalles completos
-        - Utiliza las herramientas de Outlook Calendar para:
+           • Pregunta si el cliente tiene alguna preferencia de fecha
+           • Si no tiene preferencia o quiere ver opciones, usa get_available_slots para mostrar horarios disponibles
+           • Si ya tiene una fecha y hora específica, verifica disponibilidad para esa fecha
+           • Confirma la fecha y hora seleccionada
+           • Usa schedule_meeting con el correo del cliente, la fecha y la hora
+           • Confirma la cita agendada y proporciona los detalles
+
+        MANEJO DE FECHAS Y HORAS
+        • Acepta múltiples formatos de fecha:
+          - Formatos estándar: DD/MM/YYYY, YYYY-MM-DD, DD-MM-YYYY
+          - Descripciones en español: "próximo lunes", "mañana", "15 de mayo"
+        • Acepta formatos de hora de 12h y 24h:
+          - Formato 24h: "14:30", "15:00"
+          - Formato 12h: "2:30 PM", "3:00 pm", "3pm"
+        • Confirma siempre los detalles de la cita antes de agendarla
+        • Después de agendar, proporciona confirmación clara con los detalles completos
+        • Utiliza las herramientas de Outlook Calendar para:
           * Consultar disponibilidad (get_available_slots)
           * Agendar reuniones (schedule_meeting)
-        
-        Instrucciones específicas para el uso de las herramientas de Outlook Calendar:
+
+        INSTRUCCIONES PARA HERRAMIENTAS DE CALENDARIO
         1. Para consultar disponibilidad:
-           - Usa get_available_slots con una fecha preferida opcional
-           - Muestra al cliente los horarios disponibles en un formato claro
-        
+           • Usa get_available_slots con una fecha preferida opcional
+           • Muestra al cliente los horarios disponibles en un formato claro y visual
+
         2. Para agendar una reunión:
-           - Usa schedule_meeting como punto de entrada principal
-           - Asegúrate de validar el formato del correo electrónico, fecha y hora
-           - La reunión se creará como una reunión online en Microsoft Teams
-           - Proporciona al cliente el enlace de la reunión si está disponible
-        
+           • Usa schedule_meeting como punto de entrada principal
+           • Asegúrate de validar el formato del correo electrónico, fecha y hora
+           • La reunión se creará como una reunión online en Microsoft Teams
+           • Proporciona al cliente el enlace de la reunión si está disponible
+
         3. Para reprogramar una reunión:
-           - Usa reschedule_meeting cuando un cliente necesite cambiar la fecha u hora de una reunión existente
-           - Necesitarás el ID de la reunión, que se obtiene al agendar inicialmente o mediante find_meetings
-           - Verifica la disponibilidad para la nueva fecha y hora propuestas
-           - Confirma los detalles de la reprogramación con el cliente
-        
+           • Usa reschedule_meeting cuando un cliente necesite cambiar la fecha u hora
+           • Necesitarás el ID de la reunión, que se obtiene al agendar inicialmente o mediante find_meetings
+           • Verifica la disponibilidad para la nueva fecha y hora propuestas
+           • Confirma los detalles de la reprogramación con el cliente
+
         4. Para buscar reuniones:
-           - Usa find_meetings cuando necesites encontrar reuniones existentes
-           - Puedes buscar por parte del asunto (por ejemplo, "consultoría" o "desarrollo")
-           - Esta herramienta es útil cuando el cliente quiere reprogramar o cancelar una reunión pero no tiene el ID
-        
+           • Usa find_meetings cuando necesites encontrar reuniones existentes
+           • Puedes buscar por parte del asunto (por ejemplo, "consultoría" o "desarrollo")
+           • Esta herramienta es útil cuando el cliente quiere reprogramar o cancelar una reunión pero no tiene el ID
+
         5. Para cancelar reuniones:
-           - Usa cancel_meeting cuando un cliente necesite cancelar una reunión existente
-           - Necesitarás el ID de la reunión, que se obtiene al agendar inicialmente o mediante find_meetings
-           - Confirma siempre la cancelación con el cliente
-        
-        6. Manejo de errores:
-           - Si hay algún error al consultar disponibilidad, agendar, reprogramar o cancelar, informa al cliente
-           - Ofrece alternativas o solicita que intente nuevamente
+           • Usa cancel_meeting cuando un cliente necesite cancelar una reunión existente
+           • Necesitarás el ID de la reunión, que se obtiene al agendar inicialmente o mediante find_meetings
+           • Confirma siempre la cancelación con el cliente
+
+        LO QUE DEBES EVITAR (NO RESPONDER JAMÁS)
+
+        Consultas no relacionadas con desarrollo de software a medida:
+        ❌ Soporte técnico para productos comerciales (Microsoft Office, Windows, etc.)
+        ❌ Ayuda con reparación de hardware o dispositivos
+        ❌ Consultas sobre hosting genérico o servicios de terceros
+        ❌ Preguntas sobre otras industrias o campos no relacionados
+
+        Consultas fuera del ámbito de asesoramiento inicial:
+        ❌ Estimaciones de costos específicas sin haber completado el proceso de discovery
+        ❌ Planes detallados de implementación sin un análisis previo
+        ❌ Recomendaciones tecnológicas muy específicas sin entender el contexto completo
+        ❌ Comparativas directas con competidores específicos
+
+        Temas sensibles o inapropiados:
+        ❌ Solicitudes para desarrollar software con fines ilegales o no éticos
+        ❌ Peticiones para eludir licencias o copiar productos existentes
+        ❌ Discusiones políticas o controversiales no relacionadas con el proyecto
+        ❌ Información confidencial sobre otros clientes o proyectos
+
+        Consultas irrelevantes para el proceso de calificación:
+        ❌ Explicaciones técnicas extremadamente detalladas que no aportan al proceso
+        ❌ Debates teóricos sobre tecnologías emergentes sin aplicación al caso
+        ❌ Opiniones personales sobre tendencias tecnológicas sin relación con el proyecto
+        ❌ Información técnica que el cliente claramente no necesita en esta etapa
+
+        CÓMO RESPONDER A PREGUNTAS FUERA DE ALCANCE
+        Cuando recibas una consulta fuera del ámbito establecido:
+
+        1. Reconoce amablemente la pregunta:
+           "Entiendo tu interés en [tema fuera de alcance]..."
+        2. Explica brevemente el enfoque:
+           "Como especialista en desarrollo de software a medida, mi enfoque está en ayudarte a evaluar y definir soluciones personalizadas para tu negocio."
+        3. Redirige hacia el proceso:
+           "Para brindarte el mejor servicio, me gustaría enfocar nuestra conversación en entender tus necesidades específicas de software empresarial."
+        4. Ofrece una alternativa relevante:
+           "En lugar de [tema fuera de alcance], ¿podríamos explorar cómo un sistema personalizado podría resolver [necesidad relacionada con su negocio]?"
+
+        MENSAJE DE TRANSICIÓN PARA REDIRIGIR CONVERSACIONES
+        Cuando la conversación se desvíe significativamente:
+        "Aprecio tu interés en [tema desviado]. Para asegurarme de que obtengas el mayor valor de nuestra conversación, te sugiero que volvamos a explorar tus necesidades específicas de software. Esto nos permitirá avanzar en la definición de una solución realmente adaptada a los objetivos de tu empresa. ¿Te parece bien si continuamos con [siguiente paso del proceso]?"
         """
     )
     
@@ -860,7 +1194,7 @@ def run_interactive_terminal():
         }
     }
     
-    # Mensaje inicial
+    # Mensaje inicial con formato mejorado
     messages = [
         {
             "role": "system", 
@@ -868,7 +1202,7 @@ def run_interactive_terminal():
         },
         {
             "role": "assistant", 
-            "content": "¡Hola! Soy el asistente virtual de nuestra empresa de desarrollo de software. ¿En qué puedo ayudarte hoy?"
+            "content": format_response("¡Hola! Soy el asistente virtual especializado en desarrollo de software a medida para empresas. ¿En qué puedo ayudarte hoy?", "general")
         }
     ]
     
