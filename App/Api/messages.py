@@ -18,6 +18,42 @@ logger = logging.getLogger(__name__)
 # Create router
 router = APIRouter()
 
+# Add endpoint to mark messages as read
+@router.put("/read", status_code=200)
+@router.put("read", status_code=200)  # Ruta sin barra final
+async def mark_messages_as_read(
+    conversation_id: str = Query(..., description="Conversation ID to mark messages as read"),
+    supabase = Depends(get_supabase)
+):
+    """
+    Mark all messages in a conversation as read
+    """
+    try:
+        if not conversation_id:
+            raise HTTPException(status_code=400, detail="conversation_id is required")
+        
+        logger.info(f"Marking messages as read for conversation: {conversation_id}")
+        
+        # Update all unread messages in the conversation
+        response = supabase.table("messages").update(
+            {"read": True}
+        ).eq("conversation_id", conversation_id).eq("read", False).execute()
+        
+        # Check for errors
+        if hasattr(response, 'error') and response.error:
+            logger.error(f"Error marking messages as read: {response.error}")
+            raise HTTPException(status_code=500, detail=str(response.error))
+        
+        # Return success response
+        return {"success": True, "updated_count": len(response.data) if response.data else 0}
+    
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error marking messages as read: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
+
 # Define models
 class MessageCreate(BaseModel):
     conversation_id: str
@@ -150,7 +186,7 @@ async def create_message(
     supabase = Depends(get_supabase)
 ):
     """
-    Create a new message
+    Create a new message and send it to WhatsApp if it's from the frontend
     """
     try:
         if not message.conversation_id or not message.content:
@@ -158,19 +194,47 @@ async def create_message(
         
         logger.info(f"Creating message for conversation: {message.conversation_id}")
         
+        # Get conversation to check if it's a WhatsApp conversation
+        conversation_response = supabase.table("conversations").select(
+            "*"
+        ).eq("id", message.conversation_id).execute()
+        
+        if not conversation_response.data or len(conversation_response.data) == 0:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        
+        conversation = conversation_response.data[0]
+        
         # Add message to the conversation
         try:
             response = supabase.table("messages").insert({
                 "conversation_id": message.conversation_id,
-                "role": "user",  # Messages from the web interface are always from the user
+                "role": "assistant",  # Messages from the web interface are from the assistant
                 "content": message.content,
                 "message_type": message.message_type,
-                "media_url": message.media_url
+                "media_url": message.media_url,
+                "read": True  # Messages sent from frontend are already read
             }).execute()
             logger.info("Message insert request executed")
         except Exception as db_error:
             logger.error(f"Database error creating message: {str(db_error)}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Database error: {str(db_error)}")
+        
+        # If it's a WhatsApp conversation, send the message to WhatsApp
+        if conversation["platform"] == "whatsapp":
+            from App.Services.whatsapp_api import send_whatsapp_message
+            
+            # Get the phone number from external_id
+            phone = conversation["external_id"]
+            
+            # Send message to WhatsApp
+            send_result = send_whatsapp_message(
+                to=phone,
+                message_type=message.message_type,
+                content=message.content,
+                caption=None
+            )
+            
+            logger.info(f"Message sent to WhatsApp: {send_result is not None}")
         
         # Check for errors
         if hasattr(response, 'error') and response.error:

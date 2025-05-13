@@ -238,19 +238,28 @@ def process_incoming_message(sender, message_type, content, message_id=None):
         
         logger.info(f"Contenido del mensaje preparado: '{message_content}'")
         
-        # Agregar mensaje del usuario a la base de datos
+        # Agregar mensaje del usuario a la base de datos (con read=False)
         try:
             user_message = add_message(
                 conversation_id=conversation["id"],
                 role="user",
                 content=message_content,
                 message_type=message_type,
-                external_id=message_id
+                external_id=message_id,
+                read=False  # Marcar como no leído
             )
             logger.info(f"Mensaje del usuario añadido a la BD: {user_message.get('id')}")
         except Exception as msg_error:
             logger.error(f"Error al añadir mensaje del usuario: {str(msg_error)}")
             raise
+        
+        # Verificar si el agente está activado para esta conversación
+        agent_enabled = conversation.get("agent_enabled", True)  # Default to True if not set
+        
+        # Si el agente está desactivado, solo guardar el mensaje sin procesar
+        if not agent_enabled:
+            logger.info(f"Agente desactivado para conversación {conversation['id']}, no se procesará el mensaje")
+            return True
         
         # Obtener historial de mensajes para el agente
         try:
@@ -272,7 +281,8 @@ def process_incoming_message(sender, message_type, content, message_id=None):
                 system_message = add_message(
                     conversation_id=conversation["id"],
                     role="system",
-                    content="Iniciando conversación con un potencial cliente."
+                    content="Iniciando conversación con un potencial cliente.",
+                    read=True  # Los mensajes de sistema ya están leídos
                 )
                 logger.info(f"Mensaje de sistema añadido: {system_message.get('id')}")
                 
@@ -280,7 +290,8 @@ def process_incoming_message(sender, message_type, content, message_id=None):
                 welcome_message = add_message(
                     conversation_id=conversation["id"],
                     role="assistant",
-                    content="¡Hola! Soy el asistente virtual de nuestra empresa de desarrollo de software. ¿En qué puedo ayudarte hoy?"
+                    content="¡Hola! Soy el asistente virtual de nuestra empresa de desarrollo de software. ¿En qué puedo ayudarte hoy?",
+                    read=True  # Los mensajes del asistente ya están leídos
                 )
                 logger.info(f"Mensaje de bienvenida añadido: {welcome_message.get('id')}")
                 
@@ -349,7 +360,8 @@ def process_incoming_message(sender, message_type, content, message_id=None):
                 conversation_id=conversation["id"],
                 role="assistant",
                 content=agent_response,
-                message_type="text"
+                message_type="text",
+                read=True  # Las respuestas del asistente ya están leídas
             )
             logger.info(f"Respuesta del asistente guardada en BD: {assistant_db_message.get('id')}")
         except Exception as save_error:

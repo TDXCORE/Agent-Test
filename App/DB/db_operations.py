@@ -216,7 +216,7 @@ def get_conversation_messages(conversation_id: str) -> List[Dict]:
     return response.data
 
 def add_message(conversation_id: str, role: str, content: str, message_type: str = "text", 
-                media_url: Optional[str] = None, external_id: Optional[str] = None) -> Dict:
+                media_url: Optional[str] = None, external_id: Optional[str] = None, read: bool = False) -> Dict:
     """
     Añade un mensaje a una conversación.
     
@@ -227,6 +227,7 @@ def add_message(conversation_id: str, role: str, content: str, message_type: str
         message_type: Tipo de mensaje (text, image, audio, video)
         media_url: URL del archivo multimedia (opcional)
         external_id: ID externo del mensaje (opcional)
+        read: Indica si el mensaje ha sido leído (por defecto False)
         
     Returns:
         Datos del mensaje creado
@@ -237,7 +238,8 @@ def add_message(conversation_id: str, role: str, content: str, message_type: str
         "content": content,
         "message_type": message_type,
         "media_url": media_url,
-        "external_id": external_id
+        "external_id": external_id,
+        "read": read
     }
     
     response = supabase.table("messages").insert(message_data).execute()
@@ -689,3 +691,40 @@ def get_meeting_by_outlook_id(outlook_meeting_id: str) -> Optional[Dict]:
         .execute()
     
     return response.data[0] if response.data else None
+
+# ----- OPERACIONES DE MENSAJES NO LEÍDOS -----
+
+def mark_messages_as_read(conversation_id: str) -> int:
+    """
+    Marca todos los mensajes no leídos de una conversación como leídos.
+    
+    Args:
+        conversation_id: ID de la conversación
+        
+    Returns:
+        Número de mensajes actualizados
+    """
+    response = supabase.table("messages").update(
+        {"read": True}
+    ).eq("conversation_id", conversation_id).eq("read", False).execute()
+    
+    return len(response.data) if response.data else 0
+
+# ----- OPERACIONES DE ESTADO DEL AGENTE -----
+
+def update_agent_status(conversation_id: str, enabled: bool) -> Dict:
+    """
+    Actualiza el estado del agente para una conversación.
+    
+    Args:
+        conversation_id: ID de la conversación
+        enabled: True para activar, False para desactivar
+        
+    Returns:
+        Datos de la conversación actualizada
+    """
+    response = supabase.table("conversations").update(
+        {"agent_enabled": enabled, "updated_at": "now()"}
+    ).eq("id", conversation_id).execute()
+    
+    return response.data[0] if response.data else {}
