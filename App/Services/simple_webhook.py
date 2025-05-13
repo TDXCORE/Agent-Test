@@ -379,23 +379,29 @@ def process_incoming_message(sender, message_type, content, message_id=None):
 
 # ---- RUTAS DEL WEBHOOK ----
 
-@app.route('/webhook', methods=['GET'])
+@app.route('/', methods=['GET'])
 def verify_webhook():
     """
     Maneja la verificación del webhook por parte de WhatsApp.
+    También sirve como página de índice cuando se accede directamente.
     """
     mode = request.args.get('hub.mode')
     token = request.args.get('hub.verify_token')
     challenge = request.args.get('hub.challenge')
     
-    if mode == 'subscribe' and token == WHATSAPP_WEBHOOK_TOKEN:
-        logger.info("Webhook verificado!")
-        return challenge, 200
-    else:
-        logger.warning(f"Verificación fallida. Mode: {mode}, Token recibido: {token}, Token esperado: {WHATSAPP_WEBHOOK_TOKEN}")
-        return "Verification failed", 403
+    # Si es una solicitud de verificación de webhook
+    if mode and token:
+        if mode == 'subscribe' and token == WHATSAPP_WEBHOOK_TOKEN:
+            logger.info("Webhook verificado!")
+            return challenge, 200
+        else:
+            logger.warning(f"Verificación fallida. Mode: {mode}, Token recibido: {token}, Token esperado: {WHATSAPP_WEBHOOK_TOKEN}")
+            return "Verification failed", 403
+    
+    # Si es una visita normal a la página de índice
+    return "WhatsApp Webhook está funcionando. Usa /webhook para recibir mensajes.", 200
 
-@app.route('/webhook', methods=['POST'])
+@app.route('/', methods=['POST'])
 def receive_webhook():
     """
     Recibe notificaciones de mensajes y eventos de WhatsApp.
@@ -477,9 +483,9 @@ def process_webhook_messages(message_data):
 
 # ---- SERVIDOR PARA DESARROLLO LOCAL ----
 
-@app.route('/')
-def index():
-    return "WhatsApp Webhook está funcionando. Usa /webhook para recibir mensajes."
+# Ruta de índice ya definida en verify_webhook
+# def index():
+#     return "WhatsApp Webhook está funcionando. Usa /webhook para recibir mensajes."
 
 # Punto de entrada para Vercel
 handler = app
