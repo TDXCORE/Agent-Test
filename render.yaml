@@ -3,7 +3,7 @@ services:
     name: whatsapp-webhook
     env: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn App.api:app --timeout 120
+    startCommand: gunicorn App.api:app -k uvicorn.workers.UvicornWorker --timeout 120
     
   - type: web
     name: chat-api
