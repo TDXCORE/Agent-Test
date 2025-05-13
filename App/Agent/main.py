@@ -17,6 +17,26 @@ from langgraph.prebuilt.chat_agent_executor import AgentState
 from langgraph.checkpoint.memory import InMemorySaver
 from langsmith import Client
 
+# Clase para gestionar el contexto global del agente
+class AgentContext:
+    _instance = None
+    
+    @classmethod
+    def get_instance(cls):
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
+    
+    def __init__(self):
+        self.thread_id = None
+        
+    def set_thread_id(self, thread_id):
+        self.thread_id = thread_id
+        logger.info(f"Thread ID configurado: {thread_id}")
+        
+    def get_thread_id(self):
+        return self.thread_id
+
 # Configurar logging
 logging.basicConfig(
     level=logging.INFO,
@@ -323,10 +343,9 @@ def process_consent(response: str) -> str:
     # Lógica simple para determinar si el usuario dio consentimiento
     consent_given = response.lower() in ["sí", "si", "yes", "y", "acepto", "estoy de acuerdo"]
     
-    # Obtener thread_id del contexto para identificar la conversación
-    thread_id = None
-    if hasattr(process_consent, "config") and process_consent.config:
-        thread_id = process_consent.config.get("thread_id")
+    # Obtener thread_id del contexto global
+    thread_id = AgentContext.get_instance().get_thread_id()
+    logger.info(f"process_consent: Usando thread_id {thread_id}")
     
     if thread_id:
         # Buscar usuario y conversación
@@ -369,10 +388,9 @@ def save_personal_data(name: str, company: Optional[str], email: str, phone: str
         company=company
     )
     
-    # Obtener thread_id del contexto
-    thread_id = None
-    if hasattr(save_personal_data, "config") and save_personal_data.config:
-        thread_id = save_personal_data.config.get("thread_id")
+    # Obtener thread_id del contexto global
+    thread_id = AgentContext.get_instance().get_thread_id()
+    logger.info(f"save_personal_data: Usando thread_id {thread_id}")
     
     if thread_id and user:
         # Actualizar conversación si existe
@@ -399,10 +417,9 @@ def save_bant_data(budget: str, authority: str, need: str, timeline: str) -> str
     Returns:
         Mensaje de confirmación
     """
-    # Obtener thread_id del contexto
-    thread_id = None
-    if hasattr(save_bant_data, "config") and save_bant_data.config:
-        thread_id = save_bant_data.config.get("thread_id")
+    # Obtener thread_id del contexto global
+    thread_id = AgentContext.get_instance().get_thread_id()
+    logger.info(f"save_bant_data: Usando thread_id {thread_id}")
     
     if thread_id:
         # Buscar usuario y conversación
@@ -442,10 +459,9 @@ def save_requirements(app_type: str, core_features: str, integrations: str, dead
     Returns:
         Mensaje de confirmación
     """
-    # Obtener thread_id del contexto
-    thread_id = None
-    if hasattr(save_requirements, "config") and save_requirements.config:
-        thread_id = save_requirements.config.get("thread_id")
+    # Obtener thread_id del contexto global
+    thread_id = AgentContext.get_instance().get_thread_id()
+    logger.info(f"save_requirements: Usando thread_id {thread_id}")
     
     if thread_id:
         # Buscar usuario y conversación
@@ -748,10 +764,9 @@ def schedule_meeting(email: str, date: Optional[str] = None, time: Optional[str]
             return format_response("No se pudo agendar la reunión. Por favor, intenta más tarde.", "error")
             
         # Guardar la reunión en la base de datos
-        # Obtener thread_id del contexto
-        thread_id = None
-        if hasattr(schedule_meeting, "config") and schedule_meeting.config:
-            thread_id = schedule_meeting.config.get("thread_id")
+        # Obtener thread_id del contexto global
+        thread_id = AgentContext.get_instance().get_thread_id()
+        logger.info(f"schedule_meeting: Usando thread_id {thread_id}")
         
         if thread_id:
             # Buscar usuario y conversación
@@ -809,10 +824,9 @@ def find_meetings(subject_contains: str = "Reunión de consultoría") -> str:
         Lista de reuniones que coinciden con el criterio
     """
     try:
-        # Obtener thread_id del contexto
-        thread_id = None
-        if hasattr(find_meetings, "config") and find_meetings.config:
-            thread_id = find_meetings.config.get("thread_id")
+        # Obtener thread_id del contexto global
+        thread_id = AgentContext.get_instance().get_thread_id()
+        logger.info(f"find_meetings: Usando thread_id {thread_id}")
         
         # Si tenemos thread_id, intentar buscar reuniones en la base de datos primero
         if thread_id:
@@ -878,10 +892,9 @@ def cancel_meeting(meeting_id: Optional[str] = None) -> str:
     try:
         # Si no se proporciona ID, intentar buscar la reunión del usuario
         if not meeting_id:
-            # Obtener thread_id del contexto
-            thread_id = None
-            if hasattr(cancel_meeting, "config") and cancel_meeting.config:
-                thread_id = cancel_meeting.config.get("thread_id")
+            # Obtener thread_id del contexto global
+            thread_id = AgentContext.get_instance().get_thread_id()
+            logger.info(f"cancel_meeting: Usando thread_id {thread_id}")
             
             if not thread_id:
                 return format_response("No se pudo identificar al usuario. Por favor, proporciona el ID de la reunión a cancelar.", "error")
@@ -951,10 +964,9 @@ def reschedule_meeting(meeting_id: Optional[str] = None, new_date: str = None, n
         
         # Si no se proporciona ID, intentar buscar la reunión del usuario
         if not meeting_id:
-            # Obtener thread_id del contexto
-            thread_id = None
-            if hasattr(reschedule_meeting, "config") and reschedule_meeting.config:
-                thread_id = reschedule_meeting.config.get("thread_id")
+            # Obtener thread_id del contexto global
+            thread_id = AgentContext.get_instance().get_thread_id()
+            logger.info(f"reschedule_meeting: Usando thread_id {thread_id}")
             
             if not thread_id:
                 return format_response("No se pudo identificar al usuario. Por favor, proporciona el ID de la reunión a reprogramar.", "error")
