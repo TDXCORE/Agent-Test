@@ -799,21 +799,49 @@ def schedule_meeting(email: str, date: Optional[str] = None, time: Optional[str]
         return format_response(error_msg, "error")
 
 @tool
-def find_meetings(subject_contains: str) -> str:
+def find_meetings(subject_contains: str = "Reunión de consultoría") -> str:
     """Busca reuniones por parte del asunto.
     
     Args:
-        subject_contains: Texto que debe contener el asunto
+        subject_contains: Texto que debe contener el asunto (por defecto "Reunión de consultoría")
         
     Returns:
         Lista de reuniones que coinciden con el criterio
     """
     try:
-        # Buscar reuniones usando la función de outlook.py
+        # Obtener thread_id del contexto
+        thread_id = None
+        if hasattr(find_meetings, "config") and find_meetings.config:
+            thread_id = find_meetings.config.get("thread_id")
+        
+        # Si tenemos thread_id, intentar buscar reuniones en la base de datos primero
+        if thread_id:
+            user = get_user_by_phone(thread_id)
+            if user:
+                # Buscar reuniones del usuario en la base de datos
+                user_meetings = get_user_meetings(user["id"])
+                if user_meetings:
+                    # Formatear la respuesta para el usuario
+                    response = f"Reuniones encontradas para ti:\n\n"
+                    
+                    for i, meeting in enumerate(user_meetings, 1):
+                        response += f"{i}. Asunto: {meeting['subject']}\n"
+                        response += f"   Fecha: {meeting['start_time']}\n"
+                        response += f"   ID: {meeting['outlook_meeting_id']}\n"
+                        
+                        if meeting.get('online_meeting_url'):
+                            response += f"   Enlace: {meeting['online_meeting_url']}\n"
+                        
+                        response += "\n"
+                    
+                    return format_response(response, "meeting")
+        
+        # Si no encontramos reuniones en la base de datos o no tenemos thread_id,
+        # buscar en Outlook usando la API
         meetings = outlook_find_meetings(subject_contains)
         
         if not meetings:
-            return f"No se encontraron reuniones con el asunto '{subject_contains}'."
+            return format_response(f"No se encontraron reuniones con el asunto '{subject_contains}'.", "warning")
         
         # Formatear la respuesta para el usuario
         response = f"Reuniones encontradas con el asunto '{subject_contains}':\n\n"
@@ -829,22 +857,58 @@ def find_meetings(subject_contains: str) -> str:
             
             response += "\n"
         
-        return response
+        return format_response(response, "meeting")
     
     except Exception as e:
-        return f"Error al buscar reuniones: {str(e)}. Por favor, intente más tarde."
+        logger.error(f"Error al buscar reuniones: {str(e)}")
+        import traceback
+        logger.error(f"Traza completa: {traceback.format_exc()}")
+        return format_response(f"Error al buscar reuniones. Por favor, intenta más tarde.", "error")
 
 @tool
-def cancel_meeting(meeting_id: str) -> str:
+def cancel_meeting(meeting_id: Optional[str] = None) -> str:
     """Cancela una reunión existente.
     
     Args:
-        meeting_id: ID de la reunión a cancelar
+        meeting_id: ID de la reunión a cancelar (opcional, si no se proporciona se buscará la reunión del usuario)
         
     Returns:
         Mensaje de confirmación
     """
     try:
+        # Si no se proporciona ID, intentar buscar la reunión del usuario
+        if not meeting_id:
+            # Obtener thread_id del contexto
+            thread_id = None
+            if hasattr(cancel_meeting, "config") and cancel_meeting.config:
+                thread_id = cancel_meeting.config.get("thread_id")
+            
+            if not thread_id:
+                return format_response("No se pudo identificar al usuario. Por favor, proporciona el ID de la reunión a cancelar.", "error")
+            
+            # Buscar usuario
+            user = get_user_by_phone(thread_id)
+            if not user:
+                return format_response("No se encontró información del usuario. Por favor, proporciona el ID de la reunión a cancelar.", "error")
+            
+            # Buscar reuniones del usuario
+            user_meetings = get_user_meetings(user["id"])
+            if not user_meetings:
+                return format_response("No se encontraron reuniones programadas para ti.", "warning")
+            
+            # Usar la reunión más reciente (asumiendo que es la que quiere cancelar)
+            # Ordenar por fecha de inicio (más reciente primero)
+            active_meetings = [m for m in user_meetings if m["status"] in ["scheduled", "rescheduled"]]
+            if not active_meetings:
+                return format_response("No tienes reuniones activas para cancelar.", "warning")
+            
+            # Ordenar por fecha de inicio (más reciente primero)
+            sorted_meetings = sorted(active_meetings, key=lambda x: x["start_time"], reverse=True)
+            meeting = sorted_meetings[0]
+            meeting_id = meeting["outlook_meeting_id"]
+            
+            logger.info(f"Se encontró la reunión {meeting_id} para cancelar")
+        
         # Cancelar la reunión usando la función de outlook.py
         success = outlook_cancel(meeting_id)
         
@@ -856,21 +920,23 @@ def cancel_meeting(meeting_id: str) -> str:
                 update_meeting_status(meeting_in_db["id"], "cancelled")
             
             logger.info(f"Reunión {meeting_id} cancelada exitosamente")
-            return "La reunión ha sido cancelada exitosamente."
+            return format_response("La reunión ha sido cancelada exitosamente.", "meeting_cancelled")
         else:
             logger.error(f"No se pudo cancelar la reunión {meeting_id}")
-            return "No se pudo cancelar la reunión. Por favor, verifique el ID de la reunión e intente más tarde."
+            return format_response("No se pudo cancelar la reunión. Por favor, intenta más tarde.", "error")
     
     except Exception as e:
-        logger.error(f"Error al cancelar la reunión {meeting_id}: {str(e)}")
-        return f"Error al cancelar la reunión: {str(e)}. Por favor, intente más tarde."
+        logger.error(f"Error al cancelar la reunión: {str(e)}")
+        import traceback
+        logger.error(f"Traza completa: {traceback.format_exc()}")
+        return format_response(f"Error al cancelar la reunión. Por favor, intenta más tarde.", "error")
 
 @tool
-def reschedule_meeting(meeting_id: str, new_date: str, new_time: str, duration: Optional[int] = None) -> str:
+def reschedule_meeting(meeting_id: Optional[str] = None, new_date: str = None, new_time: str = None, duration: Optional[int] = None) -> str:
     """Reprograma una reunión existente.
     
     Args:
-        meeting_id: ID de la reunión a reprogramar
+        meeting_id: ID de la reunión a reprogramar (opcional, si no se proporciona se buscará la reunión del usuario)
         new_date: Nueva fecha (múltiples formatos aceptados)
         new_time: Nueva hora (formato 12h o 24h)
         duration: Nueva duración en minutos (opcional)
@@ -879,9 +945,42 @@ def reschedule_meeting(meeting_id: str, new_date: str, new_time: str, duration: 
         Mensaje de confirmación con formato visual mejorado
     """
     try:
-        # Validar el ID de la reunión
+        # Si no se proporciona fecha o hora, solicitar esta información
+        if not new_date or not new_time:
+            return format_response("Por favor, indica la nueva fecha y hora para reprogramar la reunión.", "warning")
+        
+        # Si no se proporciona ID, intentar buscar la reunión del usuario
         if not meeting_id:
-            return format_response("Por favor, proporciona un ID de reunión válido.", "error")
+            # Obtener thread_id del contexto
+            thread_id = None
+            if hasattr(reschedule_meeting, "config") and reschedule_meeting.config:
+                thread_id = reschedule_meeting.config.get("thread_id")
+            
+            if not thread_id:
+                return format_response("No se pudo identificar al usuario. Por favor, proporciona el ID de la reunión a reprogramar.", "error")
+            
+            # Buscar usuario
+            user = get_user_by_phone(thread_id)
+            if not user:
+                return format_response("No se encontró información del usuario. Por favor, proporciona el ID de la reunión a reprogramar.", "error")
+            
+            # Buscar reuniones del usuario
+            user_meetings = get_user_meetings(user["id"])
+            if not user_meetings:
+                return format_response("No se encontraron reuniones programadas para ti.", "warning")
+            
+            # Usar la reunión más reciente (asumiendo que es la que quiere reprogramar)
+            # Ordenar por fecha de inicio (más reciente primero)
+            active_meetings = [m for m in user_meetings if m["status"] in ["scheduled", "rescheduled"]]
+            if not active_meetings:
+                return format_response("No tienes reuniones activas para reprogramar.", "warning")
+            
+            # Ordenar por fecha de inicio (más reciente primero)
+            sorted_meetings = sorted(active_meetings, key=lambda x: x["start_time"], reverse=True)
+            meeting = sorted_meetings[0]
+            meeting_id = meeting["outlook_meeting_id"]
+            
+            logger.info(f"Se encontró la reunión {meeting_id} para reprogramar")
         
         # Parsear la fecha en múltiples formatos
         parsed_date = parse_date(new_date)
