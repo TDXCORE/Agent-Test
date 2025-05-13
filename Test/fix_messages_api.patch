@@ -1,0 +1,11 @@
+--- App/Api/messages.py	2025-05-13 20:00:00.000000000 +0000
++++ App/Api/messages.py.fixed	2025-05-13 20:00:00.000000000 +0000
+@@ -79,7 +79,7 @@
+         try:
+             response = supabase.table("messages").select(
+                 "*"
+-            ).eq("conversation_id", conversation_id).order("created_at", {"ascending": True}).execute()
++            ).eq("conversation_id", conversation_id).order("created_at").execute()
+             logger.info(f"Supabase response received with {len(response.data) if hasattr(response, 'data') else 'no'} messages")
+         except Exception as db_error:
+             logger.error(f"Database error: {str(db_error)}", exc_info=True)

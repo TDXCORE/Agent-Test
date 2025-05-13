@@ -1,3 +1,163 @@
+/**
+ * API Fix Solution Script
+ * 
+ * This script provides a comprehensive solution for the API issues:
+ * 1. Tests all API endpoints to identify issues
+ * 2. Generates a fixed version of the messages.py file
+ * 3. Provides clear instructions on how to apply the fix
+ * 
+ * Usage: node api_fix_solution.js
+ */
+
+const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
+const { inspect } = require('util');
+
+// Base URL for the API
+const BASE_URL = 'https://waagentv1.onrender.com';
+
+// Function to deeply inspect an object for better debugging
+function deepInspect(obj) {
+  return inspect(obj, { depth: null, colors: true });
+}
+
+// Function to print a section header
+function printHeader(title) {
+  console.log('\n' + '='.repeat(title.length + 10));
+  console.log(`===== ${title} =====`);
+  console.log('='.repeat(title.length + 10));
+}
+
+// Main function to test and fix the API issues
+async function testAndFixAPI() {
+  printHeader('API FIX SOLUTION');
+  console.log(`Testing against: ${BASE_URL}`);
+  console.log('Started at:', new Date().toLocaleString());
+  
+  // Step 1: Test the Users API
+  printHeader('STEP 1: TEST USERS API');
+  let userId = null;
+  try {
+    console.log(`GET request to: ${BASE_URL}/api/users`);
+    const usersResponse = await axios.get(`${BASE_URL}/api/users`);
+    
+    console.log(`Status: ${usersResponse.status}`);
+    console.log(`Found ${usersResponse.data.length} users`);
+    
+    if (usersResponse.data && usersResponse.data.length > 0) {
+      userId = usersResponse.data[0].id;
+      console.log(`✅ Users API test passed. Using user ID: ${userId}`);
+    } else {
+      console.log('❌ Users API test failed. No users returned.');
+      return;
+    }
+  } catch (error) {
+    console.log('❌ Users API test failed.');
+    console.log(`Error: ${error.message}`);
+    
+    if (error.response) {
+      console.log(`Status: ${error.response.status}`);
+      console.log(`Response data: ${JSON.stringify(error.response.data, null, 2)}`);
+    }
+    return;
+  }
+  
+  // Step 2: Test the Conversations API
+  printHeader('STEP 2: TEST CONVERSATIONS API');
+  let conversationId = null;
+  try {
+    console.log(`GET request to: ${BASE_URL}/api/conversations?user_id=${userId}`);
+    const convsResponse = await axios.get(`${BASE_URL}/api/conversations?user_id=${userId}`);
+    
+    console.log(`Status: ${convsResponse.status}`);
+    console.log(`Found ${convsResponse.data.length} conversations`);
+    
+    if (convsResponse.data && convsResponse.data.length > 0) {
+      conversationId = convsResponse.data[0].id;
+      console.log(`✅ Conversations API test passed. Using conversation ID: ${conversationId}`);
+    } else {
+      console.log('❌ Conversations API test failed. No conversations returned.');
+      return;
+    }
+  } catch (error) {
+    console.log('❌ Conversations API test failed.');
+    console.log(`Error: ${error.message}`);
+    
+    if (error.response) {
+      console.log(`Status: ${error.response.status}`);
+      console.log(`Response data: ${JSON.stringify(error.response.data, null, 2)}`);
+    }
+    return;
+  }
+  
+  // Step 3: Test the Messages API
+  printHeader('STEP 3: TEST MESSAGES API');
+  let messagesApiError = null;
+  try {
+    console.log(`GET request to: ${BASE_URL}/api/messages?conversation_id=${conversationId}`);
+    const messagesResponse = await axios.get(`${BASE_URL}/api/messages?conversation_id=${conversationId}`);
+    
+    console.log(`Status: ${messagesResponse.status}`);
+    console.log(`Found ${messagesResponse.data.length} messages`);
+    console.log(`✅ Messages API test passed unexpectedly.`);
+    
+    // If we get here, the API is working, which is unexpected based on the error
+    console.log('\n⚠️ NOTE: The Messages API is working now, which is different from the previous error.');
+    console.log('This could mean:');
+    console.log('1. The issue has been fixed');
+    console.log('2. The issue is intermittent');
+    console.log('3. The issue only occurs under certain conditions');
+    
+    // Even though the test passed, we'll still generate the fix for reference
+    console.log('\nGenerating the fix anyway for reference...');
+  } catch (error) {
+    console.log('❌ Messages API test failed as expected.');
+    console.log(`Error: ${error.message}`);
+    
+    if (error.response) {
+      console.log(`Status: ${error.response.status}`);
+      console.log(`Response data: ${JSON.stringify(error.response.data, null, 2)}`);
+      messagesApiError = error.response.data;
+    }
+  }
+  
+  // Step 4: Generate the fix
+  printHeader('STEP 4: GENERATE FIX');
+  
+  // Check if we have the specific order() error
+  const hasOrderError = messagesApiError && 
+                        messagesApiError.detail && 
+                        messagesApiError.detail.includes('BaseSelectRequestBuilder.order() takes 2 positional arguments but 3 were given');
+  
+  if (hasOrderError) {
+    console.log('✅ Confirmed the specific order() error.');
+  } else {
+    console.log('⚠️ Could not confirm the specific order() error, but generating fix anyway.');
+  }
+  
+  // Generate the fixed messages.py file
+  console.log('\nGenerating fixed messages.py file...');
+  
+  // The original problematic line
+  const originalLine = '.order("created_at", {"ascending": True}).execute()';
+  
+  // The fixed line
+  const fixedLine = '.order("created_at").execute()';
+  
+  // Create the fixed file content
+  const fixedContent = `# FIXED VERSION OF messages.py
+# 
+# This file contains the fixed version of the messages.py file with the correct order() method.
+# The original file is located at App/Api/messages.py
+# 
+# The fix changes:
+#   .order("created_at", {"ascending": True}).execute()
+# To:
+#   .order("created_at").execute()
+#
+# This fixes the error: "BaseSelectRequestBuilder.order() takes 2 positional arguments but 3 were given"
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from typing import List, Optional
@@ -206,3 +366,36 @@ async def create_message(
     except Exception as e:
         logger.error(f"Unexpected error creating message: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
+`;
+
+  // Write the fixed file
+  const fixedFilePath = 'Test/fixed_messages.py';
+  try {
+    fs.writeFileSync(fixedFilePath, fixedContent);
+    console.log(`✅ Fixed file written to: ${fixedFilePath}`);
+  } catch (error) {
+    console.log(`❌ Error writing fixed file: ${error.message}`);
+  }
+  
+  // Step 5: Provide instructions
+  printHeader('STEP 5: INSTRUCTIONS');
+  console.log('To fix the Messages API issue, follow these steps:');
+  console.log('\n1. Locate the file App/Api/messages.py in your project');
+  console.log('\n2. Find the line containing:');
+  console.log(`   ${originalLine}`);
+  console.log('\n3. Replace it with:');
+  console.log(`   ${fixedLine}`);
+  console.log('\n4. Save the file and restart your API server');
+  console.log('\nAlternatively, you can use the fixed file that was generated:');
+  console.log(`1. Copy the content from ${fixedFilePath}`);
+  console.log('2. Replace the content of App/Api/messages.py with it');
+  console.log('3. Restart your API server');
+  
+  printHeader('SOLUTION COMPLETED');
+  console.log('Completed at:', new Date().toLocaleString());
+}
+
+// Run the test and fix function
+testAndFixAPI().catch(error => {
+  console.error('Unhandled error in solution script:', error.message);
+});

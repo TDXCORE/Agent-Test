@@ -5,7 +5,7 @@
 const axios = require('axios');
 
 // Base URL for the local API
-const BASE_URL = 'http://localhost:8000';
+const BASE_URL = 'http://localhost:8001';
 
 async function testLocalAPI() {
   console.log('=== TESTING LOCAL API ===');
