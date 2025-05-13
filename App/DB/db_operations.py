@@ -610,6 +610,11 @@ def create_meeting(user_id: str, lead_qualification_id: str, outlook_meeting_id:
     Returns:
         Datos de la reunión creada
     """
+    # Añadir logs detallados
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"Creando reunión: user_id={user_id}, lead_qualification_id={lead_qualification_id}")
+    
     meeting_data = {
         "user_id": user_id,
         "lead_qualification_id": lead_qualification_id,
@@ -621,8 +626,15 @@ def create_meeting(user_id: str, lead_qualification_id: str, outlook_meeting_id:
         "online_meeting_url": online_meeting_url
     }
     
-    response = supabase.table("meetings").insert(meeting_data).execute()
-    return response.data[0] if response.data else {}
+    try:
+        response = supabase.table("meetings").insert(meeting_data).execute()
+        logger.info(f"Reunión creada exitosamente: {response.data[0] if response.data else None}")
+        return response.data[0] if response.data else {}
+    except Exception as e:
+        logger.error(f"Error al crear reunión: {str(e)}")
+        import traceback
+        logger.error(f"Traza completa: {traceback.format_exc()}")
+        return {}
 
 def update_meeting_status(meeting_id: str, status: str) -> Dict:
     """

@@ -298,6 +298,11 @@ def process_incoming_message(sender, message_type, content, message_id=None):
             }
         }
         
+        # Configurar explícitamente el contexto del agente
+        from App.Agent.main import AgentContext
+        AgentContext.get_instance().set_thread_id(sender)
+        logger.info(f"Thread ID configurado explícitamente: {sender}")
+        
         # Invocar al agente con el historial de mensajes
         try:
             logger.info("Invocando al agente con el historial de mensajes")
@@ -446,6 +451,12 @@ def process_webhook_messages(message_data):
     Procesa los mensajes recibidos en el webhook.
     """
     logger.info(f"Procesando datos de webhook: {json.dumps(message_data, indent=2)}")
+    
+    # Verificar si es una actualización de estado en lugar de un mensaje
+    statuses = message_data.get('statuses', [])
+    if statuses:
+        logger.info(f"Recibida actualización de estado, no un mensaje: {json.dumps(statuses, indent=2)}")
+        return
     
     # Verificar si hay mensajes
     messages = message_data.get('messages', [])

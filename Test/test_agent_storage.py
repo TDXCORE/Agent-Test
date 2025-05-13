@@ -27,7 +27,10 @@ from App.DB.db_operations import (
     get_integrations,
     create_user,
     create_conversation,
-    create_lead_qualification
+    create_lead_qualification,
+    create_meeting,
+    get_meeting_by_outlook_id,
+    get_user_meetings
 )
 
 # Configurar logging
@@ -144,6 +147,52 @@ def test_save_requirements(thread_id, app_type, core_features, integrations, dea
                     })
     
     return f"Requerimientos guardados: Tipo: {app_type}, Características: {core_features}, Integraciones: {integrations}, Fecha límite: {deadline}"
+
+def test_schedule_meeting(thread_id, email, date, time):
+    """Simula la función schedule_meeting sin usar la herramienta"""
+    import datetime
+    
+    # Datos de prueba para la reunión
+    outlook_meeting_id = f"meeting_{uuid.uuid4()}"
+    subject = "Reunión de consultoría - Desarrollo de software"
+    
+    # Crear fechas de inicio y fin
+    start_date = datetime.datetime.strptime(f"{date} {time}", "%Y-%m-%d %H:%M")
+    end_date = start_date + datetime.timedelta(hours=1)
+    
+    # Formatear fechas para la base de datos
+    start_time = start_date.isoformat()
+    end_time = end_date.isoformat()
+    
+    # URL de reunión ficticia
+    online_meeting_url = f"https://teams.microsoft.com/l/meetup-join/{uuid.uuid4()}"
+    
+    if thread_id:
+        # Buscar usuario y conversación
+        user = get_user_by_phone(thread_id)
+        if user:
+            conversation = get_active_conversation(thread_id)
+            if conversation:
+                # Obtener calificación de lead
+                qualification = get_lead_qualification(user["id"], conversation["id"])
+                if qualification:
+                    # Guardar reunión en la base de datos
+                    meeting = create_meeting(
+                        user_id=user["id"],
+                        lead_qualification_id=qualification["id"],
+                        outlook_meeting_id=outlook_meeting_id,
+                        subject=subject,
+                        start_time=start_time,
+                        end_time=end_time,
+                        online_meeting_url=online_meeting_url
+                    )
+                    
+                    # Actualizar estado
+                    update_lead_qualification(qualification["id"], {
+                        "current_step": "completed"
+                    })
+    
+    return f"Reunión agendada para {date} a las {time} con {email}. ID: {outlook_meeting_id}"
 
 def test_agent_storage():
     """Prueba que el agente guarda correctamente la información en la base de datos"""
@@ -316,6 +365,40 @@ def test_agent_storage():
                         print(f"  - {integration['name']}")
                 
                 # Verificar si se actualizó el estado
+                qualification = get_lead_qualification(user['id'], conversation['id'])
+                if qualification:
+                    print(f"✅ Estado actualizado: {qualification['current_step']}")
+    
+    # Paso 5: Probar agendamiento de reunión
+    print("\n5. Probando almacenamiento de reunión...")
+    
+    # Datos de prueba
+    test_date = "2025-12-15"
+    test_time = "14:30"
+    
+    # Llamar a nuestra función de prueba en lugar de la herramienta
+    meeting_result = test_schedule_meeting(test_phone, test_email, test_date, test_time)
+    print(f"Resultado: {meeting_result}")
+    
+    # Verificar si se guardó la reunión
+    user = get_user_by_phone(test_phone)
+    if user:
+        # Buscar reuniones del usuario
+        meetings = get_user_meetings(user["id"])
+        if not meetings:
+            print("❌ No se guardó la reunión")
+        else:
+            print(f"✅ Reunión guardada con ID: {meetings[0]['id']}")
+            print(f"✅ Asunto: {meetings[0]['subject']}")
+            print(f"✅ Fecha de inicio: {meetings[0]['start_time']}")
+            print(f"✅ Fecha de fin: {meetings[0]['end_time']}")
+            print(f"✅ Estado: {meetings[0]['status']}")
+            if meetings[0].get('online_meeting_url'):
+                print(f"✅ URL de reunión: {meetings[0]['online_meeting_url']}")
+            
+            # Verificar si se actualizó el estado
+            conversation = get_active_conversation(test_phone)
+            if conversation:
                 qualification = get_lead_qualification(user['id'], conversation['id'])
                 if qualification:
                     print(f"✅ Estado actualizado: {qualification['current_step']}")

@@ -28,14 +28,20 @@ class AgentContext:
         return cls._instance
     
     def __init__(self):
-        self.thread_id = None
+        self.thread_ids = {}  # Cambiar de una variable simple a un diccionario
+        self.current_thread_id = None
         
     def set_thread_id(self, thread_id):
-        self.thread_id = thread_id
+        self.thread_ids[thread_id] = True  # Almacenar en el diccionario
+        self.current_thread_id = thread_id  # Establecer como thread_id actual
         logger.info(f"Thread ID configurado: {thread_id}")
         
     def get_thread_id(self):
-        return self.thread_id
+        if self.current_thread_id is None:
+            logger.error("Error: Thread ID no configurado")
+            return None
+        logger.info(f"Obteniendo thread_id: {self.current_thread_id}")
+        return self.current_thread_id
 
 # Configurar logging
 logging.basicConfig(
@@ -768,17 +774,28 @@ def schedule_meeting(email: str, date: Optional[str] = None, time: Optional[str]
         thread_id = AgentContext.get_instance().get_thread_id()
         logger.info(f"schedule_meeting: Usando thread_id {thread_id}")
         
-        if thread_id:
-            # Buscar usuario y conversación
-            user = get_user_by_phone(thread_id)
-            if user:
-                conversation = get_active_conversation(thread_id)
-                if conversation:
-                    # Obtener calificación de lead
-                    qualification = get_lead_qualification(user["id"], conversation["id"])
-                    if qualification:
-                        # Guardar reunión en Supabase
-                        create_meeting(
+        # Añadir verificación explícita del thread_id
+        if not thread_id:
+            logger.error("Error: No se pudo obtener thread_id válido para guardar la reunión")
+            return format_response("Error al guardar la reunión. Por favor, intenta nuevamente.", "error")
+        
+        # Buscar usuario y conversación
+        user = get_user_by_phone(thread_id)
+        logger.info(f"Usuario encontrado: {user is not None}")
+        
+        if user:
+            conversation = get_active_conversation(thread_id)
+            logger.info(f"Conversación encontrada: {conversation is not None}")
+            
+            if conversation:
+                # Obtener calificación de lead
+                qualification = get_lead_qualification(user["id"], conversation["id"])
+                logger.info(f"Calificación de lead encontrada: {qualification is not None}")
+                
+                if qualification:
+                    # Guardar reunión en Supabase
+                    try:
+                        meeting_result = create_meeting(
                             user_id=user["id"],
                             lead_qualification_id=qualification["id"],
                             outlook_meeting_id=meeting["id"],
@@ -787,11 +804,23 @@ def schedule_meeting(email: str, date: Optional[str] = None, time: Optional[str]
                             end_time=meeting["end"],
                             online_meeting_url=meeting.get("online_meeting", {}).get("join_url")
                         )
+                        logger.info(f"Reunión guardada en BD: {meeting_result is not None}")
                         
                         # Actualizar estado
-                        update_lead_qualification(qualification["id"], {
+                        update_result = update_lead_qualification(qualification["id"], {
                             "current_step": "completed"
                         })
+                        logger.info(f"Estado de calificación actualizado: {update_result is not None}")
+                    except Exception as e:
+                        logger.error(f"Error al guardar la reunión en la base de datos: {str(e)}")
+                        import traceback
+                        logger.error(f"Traza completa: {traceback.format_exc()}")
+                else:
+                    logger.error(f"No se encontró calificación de lead para user_id={user['id']}, conversation_id={conversation['id']}")
+            else:
+                logger.error(f"No se encontró conversación activa para thread_id={thread_id}")
+        else:
+            logger.error(f"No se encontró usuario para thread_id={thread_id}")
         
         # Formatear fecha y hora para la respuesta
         formatted_date = start_datetime.strftime("%d/%m/%Y")
