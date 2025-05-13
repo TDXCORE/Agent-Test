@@ -3,13 +3,13 @@ services:
     name: whatsapp-webhook
     env: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn simple_webhook:app --timeout 120
+    startCommand: gunicorn App.api:app --timeout 120
     
   - type: web
     name: chat-api
     env: python
     buildCommand: pip install -r requirements.txt
-    startCommand: cd endpoint && uvicorn api:app --host=0.0.0.0 --port=$PORT
+    startCommand: uvicorn App.api:app --host=0.0.0.0 --port=$PORT
     envVars:
       - key: OPENAI_API_KEY
         sync: false

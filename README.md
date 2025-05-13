@@ -1,117 +1,80 @@
-# Agente de Calificación de Leads con Integración MCP Outlook
+# Backend Repository
 
-Este proyecto implementa un agente conversacional para calificar leads de ventas, utilizando el framework BANT (Budget, Authority, Need, Timeline) y agendando citas automáticamente a través de la integración con Microsoft Outlook Calendar mediante MCP (Model Context Protocol).
+Este repositorio contiene el código del backend para el sistema de chat y calificación de leads.
 
-## Características
+## Estructura del Repositorio
 
-- **Flujo completo de calificación de leads**:
-  - Obtención de consentimiento GDPR/LPD
-  - Recolección de datos personales
-  - Cualificación BANT (Budget, Authority, Need, Timeline)
-  - Levantamiento de requerimientos funcionales
-  - Agendamiento de citas en Outlook
-
-- **Integración MCP con Outlook Calendar**:
-  - Verificación de disponibilidad
-  - Agendamiento de reuniones online en Microsoft Teams
-  - Manejo de errores y fallbacks
-
-## Requisitos
-
-- Python 3.8+
-- Acceso a la API de OpenAI (GPT-4o)
-- Cuenta de LangSmith (para trazabilidad y observabilidad)
-- Configuración MCP para Outlook Calendar
-
-## Instalación
-
-1. Clonar el repositorio:
-   ```bash
-   git clone https://github.com/tu-usuario/lead-qualification-agent.git
-   cd lead-qualification-agent
-   ```
-
-2. Instalar dependencias:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. Configurar variables de entorno:
-   ```bash
-   cp .env.example .env
-   # Editar .env con tus claves de API
-   ```
-
-4. Verificar la configuración MCP:
-   - Asegúrate de que el archivo `cline_mcp_settings.json` esté correctamente configurado
-   - Este archivo debe contener la configuración para el servidor MCP de Outlook Calendar
-
-## Uso
-
-### Modo Terminal Interactivo
-
-Para ejecutar el agente en modo interactivo en la terminal:
-
-```bash
-python main.py
+```
+App/
+├── __init__.py
+├── api.py                 # Punto de entrada principal
+├── dependencies.py        # Dependencias comunes
+├── Agent/                 # Módulo del agente de IA
+│   ├── __init__.py
+│   └── main.py            # Implementación del agente
+├── Api/                   # Endpoints de API para el frontend
+│   ├── __init__.py
+│   ├── conversations.py   # Gestión de conversaciones
+│   ├── messages.py        # Gestión de mensajes
+│   └── users.py           # Gestión de usuarios
+├── DB/                    # Capa de acceso a datos
+│   ├── __init__.py
+│   ├── db_operations.py   # Operaciones de base de datos
+│   └── supabase_client.py # Cliente de Supabase
+├── Schema/                # Esquemas de base de datos
+│   ├── __init__.py
+│   └── supabase_schema.sql # Definición de tablas
+└── Services/              # Servicios externos
+    ├── __init__.py
+    ├── outlook.py         # Integración con Outlook/Microsoft Graph
+    ├── simple_webhook.py  # Webhook para WhatsApp
+    └── whatsapp_api.py    # Cliente de WhatsApp API
+Test/                      # Scripts de prueba
+├── __init__.py
 ```
 
-### Con LangGraph UI
+## Flujos Principales
 
-Para ejecutar el agente con la interfaz gráfica de LangGraph:
+### 1. Flujo de Mensajes de WhatsApp (Meta API)
+
+1. Los mensajes entrantes de WhatsApp llegan a `/webhook` en `App/api.py`
+2. Se enrutan a `App/Services/simple_webhook.py`
+3. El webhook procesa el mensaje y lo envía al agente en `App/Agent/main.py`
+4. El agente puede usar Outlook (`App/Services/outlook.py`) para agendar reuniones
+5. La respuesta se envía de vuelta al usuario a través de `App/Services/whatsapp_api.py`
+6. Todas las conversaciones y datos se guardan en Supabase mediante `App/DB/db_operations.py`
+
+### 2. Flujo de API para Frontend
+
+1. Las solicitudes del frontend llegan a `App/api.py`
+2. Se enrutan a los endpoints correspondientes:
+   - `App/Api/conversations.py` para gestionar conversaciones
+   - `App/Api/messages.py` para gestionar mensajes
+   - `App/Api/users.py` para gestionar usuarios
+3. Los endpoints interactúan con la base de datos mediante `App/DB/db_operations.py`
+
+## Configuración del Entorno
+
+1. Crea un archivo `.env` basado en `.env.example` con tus credenciales
+2. Instala las dependencias: `pip install -r requirements.txt`
+
+## Ejecución Local
+
+Para ejecutar la aplicación localmente:
 
 ```bash
-langgraph dev
+uvicorn App.api:app --reload
 ```
 
-Luego accede a la UI en el navegador usando la URL proporcionada.
+## Despliegue en Render
 
-## Estructura del Proyecto
+Este repositorio está configurado para ser desplegado en Render. Los archivos de configuración son:
 
-- `main.py`: Implementación principal del agente
-- `src/agent/graph.py`: Configuración para LangGraph
-- `requirements.txt`: Dependencias del proyecto
-- `.env.example`: Plantilla para variables de entorno
-- `langgraph.json`: Configuración para LangGraph
-- `cline_mcp_settings.json`: Configuración MCP para Outlook Calendar
+- `Procfile`: Configuración para el servicio web
+- `render.yaml`: Configuración para los servicios en Render
 
-## Flujo de Conversación
+Para desplegar en Render:
 
-1. **Inicio**: El agente se presenta y solicita consentimiento GDPR/LPD
-2. **Datos Personales**: Recolecta nombre, empresa, correo y teléfono
-3. **Cualificación BANT**:
-   - Budget (Presupuesto)
-   - Authority (Decisor)
-   - Need (Necesidad)
-   - Timing (Tiempo)
-4. **Requerimientos**: Tipo de app, características, integraciones, etc.
-5. **Agendamiento**: Consulta disponibilidad y agenda cita en Outlook
-
-## Integración MCP
-
-El agente utiliza la configuración MCP definida en `cline_mcp_settings.json` para conectarse al servidor MCP de Outlook Calendar. Las herramientas MCP utilizadas son:
-
-- `microsoft_outlook_calendar-get-schedule`: Para consultar disponibilidad
-- `microsoft_outlook_calendar-create-calendar-event`: Para agendar reuniones
-
-## Desarrollo
-
-### Añadir Nuevas Herramientas
-
-Para añadir nuevas herramientas al agente:
-
-1. Define la función de la herramienta con el decorador `@tool`
-2. Añade la herramienta a la lista `tools` en la función `create_lead_qualification_agent()`
-3. Actualiza el prompt del agente para incluir instrucciones sobre cómo usar la nueva herramienta
-
-### Personalizar el Prompt
-
-El prompt del agente se puede personalizar en la función `create_lead_qualification_agent()`. Asegúrate de incluir instrucciones claras sobre:
-
-- El flujo de conversación
-- Cómo usar las herramientas disponibles
-- Manejo de errores y casos especiales
-
-## Licencia
-
-[MIT](LICENSE)
+1. Conecta tu repositorio a Render
+2. Configura las variables de entorno en el panel de Render
+3. Render usará automáticamente la configuración en `render.yaml`
