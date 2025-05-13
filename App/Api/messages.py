@@ -43,6 +43,7 @@ class MessageDB(BaseModel):
     media_url: Optional[str] = None
 
 @router.get("/", response_model=List[Message])
+@router.get("", response_model=List[Message])  # Ruta sin barra final
 async def get_messages(
     conversation_id: str = Query(..., description="Conversation ID to fetch messages for"),
     supabase = Depends(get_supabase)
@@ -143,6 +144,7 @@ async def get_messages(
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
 
 @router.post("/", response_model=Message, status_code=201)
+@router.post("", response_model=Message, status_code=201)  # Ruta sin barra final
 async def create_message(
     message: MessageCreate,
     supabase = Depends(get_supabase)

@@ -31,6 +31,7 @@ class Conversation(BaseModel):
     updated_at: str
 
 @router.get("/", response_model=List[Conversation])
+@router.get("", response_model=List[Conversation])  # Ruta sin barra final
 async def get_conversations(
     user_id: str = Query(..., description="User ID to fetch conversations for"),
     supabase = Depends(get_supabase)
@@ -60,6 +61,7 @@ async def get_conversations(
         raise HTTPException(status_code=500, detail="Internal Server Error")
 
 @router.post("/", response_model=Conversation, status_code=201)
+@router.post("", response_model=Conversation, status_code=201)  # Ruta sin barra final
 async def create_conversation(
     conversation: ConversationCreate,
     supabase = Depends(get_supabase)
