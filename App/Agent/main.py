@@ -1136,9 +1136,9 @@ def reschedule_meeting(meeting_id: Optional[str] = None, new_date: str = None, n
 
 # Función principal para crear el agente
 def create_lead_qualification_agent():
-    # Inicializar el modelo de OpenAI GPT-4o con timeout configurado
+    # Inicializar el modelo de OpenAI gpt-4.1-mini con timeout configurado
     model = ChatOpenAI(
-        model="gpt-4o", 
+        model="gpt-4.1-mini", 
         temperature=0.2,
         request_timeout=REQUEST_TIMEOUT,
         max_retries=2
