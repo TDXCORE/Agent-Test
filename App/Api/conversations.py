@@ -62,12 +62,12 @@ async def get_conversations(
         for conv in response.data:
             # Count unread messages where role is 'user' (from WhatsApp)
             unread_query = supabase.table("messages").select(
-                "id", "count"
+                "*", count="exact"
             ).eq("conversation_id", conv["id"]).eq("role", "user").eq("read", False).execute()
             
             unread_count = 0
-            if unread_query.data and len(unread_query.data) > 0:
-                unread_count = unread_query.data[0].get("count", 0)
+            if hasattr(unread_query, 'count') and unread_query.count is not None:
+                unread_count = unread_query.count
             
             # Add unread count to conversation data
             conv_with_unread = {
