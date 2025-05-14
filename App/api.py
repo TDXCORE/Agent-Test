@@ -52,7 +52,8 @@ app.include_router(users_router, prefix="/api/users", tags=["users"])
 # Mount the webhook app
 # This will route all requests to /webhook to the webhook_app
 from fastapi.middleware.wsgi import WSGIMiddleware
-app.mount("/webhook", WSGIMiddleware(webhook_app))
+app.mount("/webhook", WSGIMiddleware(webhook_app), name="webhook")
+logger.info("Webhook app montada en /webhook")
 
 @app.get("/")
 async def root():
@@ -235,7 +236,7 @@ async def health_dashboard():
                 },
                 {
                     name: "WhatsApp Webhook",
-                    url: "/webhook?hub.mode=subscribe&hub.verify_token=test&hub.challenge=test",
+                    url: "/webhook?hub.mode=subscribe&hub.verify_token=8a4c9e2f7b3d1a5c8e4f2a169c7e5e3f&hub.challenge=test",
                     method: "GET",
                     description: "Verificación del webhook de WhatsApp"
                 },

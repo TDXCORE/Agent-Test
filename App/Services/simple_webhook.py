@@ -409,8 +409,10 @@ def verify_webhook():
     # Si es una solicitud de verificación de webhook
     if mode and token:
         if mode == 'subscribe' and token == WHATSAPP_WEBHOOK_TOKEN:
-            logger.info("Webhook verificado!")
-            return challenge, 200
+            logger.info(f"Webhook verificado! Challenge: {challenge}")
+            # Devolver el challenge como texto plano con código 200
+            from flask import Response
+            return Response(challenge, mimetype='text/plain')
         else:
             logger.warning(f"Verificación fallida. Mode: {mode}, Token recibido: {token}, Token esperado: {WHATSAPP_WEBHOOK_TOKEN}")
             return "Verification failed", 403
