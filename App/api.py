@@ -311,10 +311,38 @@ async def health_dashboard():
                     const responseTime = Math.round(endTime - startTime);
                     
                     let responseData;
-                    try {
-                        responseData = await response.json();
-                    } catch (e) {
+                    
+                    // Manejo especial para el endpoint del webhook que sabemos que devuelve texto plano
+                    if (endpoint.name === "WhatsApp Webhook") {
                         responseData = await response.text();
+                        // Si es un texto simple (como el challenge), mostrarlo como objeto para mejor visualización
+                        try {
+                            // Intentar convertir a número si es posible
+                            const numValue = Number(responseData);
+                            if (!isNaN(numValue)) {
+                                responseData = { challenge: numValue };
+                            } else {
+                                responseData = { response: responseData };
+                            }
+                        } catch (e) {
+                            // Si falla, mantener como está
+                        }
+                    } else {
+                        // Para otros endpoints, intentar JSON primero
+                        const responseClone = response.clone();
+                        try {
+                            responseData = await response.json();
+                        } catch (e) {
+                            // Si falla como JSON, intentar como texto usando la copia clonada
+                            const textResponse = await responseClone.text();
+                            try {
+                                // Intentar parsear el texto como JSON por si acaso
+                                responseData = JSON.parse(textResponse);
+                            } catch (jsonError) {
+                                // Si no es JSON, usar el texto tal cual
+                                responseData = { text: textResponse };
+                            }
+                        }
                     }
                     
                     // Determinar el estado basado en el código de respuesta y el contenido
