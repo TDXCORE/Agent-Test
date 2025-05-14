@@ -62,11 +62,13 @@ async def root():
 async def health_check():
     """
     Verifica el estado de las integraciones externas (WhatsApp API y Outlook)
+    y proporciona datos de prueba para los endpoints
     """
     health_data = {
         "timestamp": datetime.now().isoformat(),
         "status": "ok",
-        "integrations": {}
+        "integrations": {},
+        "test_data": {}  # Aquí almacenaremos IDs válidos para pruebas
     }
     
     # Verificar WhatsApp API
@@ -115,12 +117,35 @@ async def health_check():
     # Verificar base de datos Supabase
     try:
         supabase = get_supabase_client()
-        # Consulta simple para verificar conexión
-        response = supabase.table("users").select("count", "exact").limit(1).execute()
+        # Consulta simple para verificar conexión (sin usar 'exact')
+        response = supabase.table("users").select("*").limit(1).execute()
         health_data["integrations"]["database"] = {
             "status": "ok",
             "details": "Connected to Supabase"
         }
+        
+        # Obtener datos de prueba de la base de datos
+        try:
+            # Obtener un usuario válido
+            user_response = supabase.table("users").select("id").limit(1).execute()
+            if user_response.data and len(user_response.data) > 0:
+                user_id = user_response.data[0]["id"]
+                health_data["test_data"]["user_id"] = user_id
+                
+                # Obtener una conversación válida para este usuario
+                conv_response = supabase.table("conversations").select("id").eq("user_id", user_id).limit(1).execute()
+                if conv_response.data and len(conv_response.data) > 0:
+                    conv_id = conv_response.data[0]["id"]
+                    health_data["test_data"]["conversation_id"] = conv_id
+                    
+                    # Obtener un mensaje válido para esta conversación
+                    msg_response = supabase.table("messages").select("id").eq("conversation_id", conv_id).limit(1).execute()
+                    if msg_response.data and len(msg_response.data) > 0:
+                        msg_id = msg_response.data[0]["id"]
+                        health_data["test_data"]["message_id"] = msg_id
+        except Exception as e:
+            health_data["test_data"]["error"] = str(e)
+            
     except Exception as e:
         health_data["integrations"]["database"] = {
             "status": "error",
@@ -161,6 +186,7 @@ async def health_dashboard():
                 font-weight: bold; 
             }
             .status-ok { background-color: #d4edda; color: #155724; }
+            .status-warning { background-color: #fff3cd; color: #856404; }
             .status-error { background-color: #f8d7da; color: #721c24; }
             .status-details { color: #666; margin-top: 10px; }
             .refresh-button {
@@ -196,6 +222,9 @@ async def health_dashboard():
         </div>
 
         <script>
+            // Almacenar datos de prueba
+            let testData = {};
+
             // Definir los endpoints a verificar
             const endpoints = [
                 {
@@ -206,9 +235,9 @@ async def health_dashboard():
                 },
                 {
                     name: "WhatsApp Webhook",
-                    url: "/webhook",
+                    url: "/webhook?hub.mode=subscribe&hub.verify_token=test&hub.challenge=test",
                     method: "GET",
-                    description: "Webhook para recibir mensajes de WhatsApp"
+                    description: "Verificación del webhook de WhatsApp"
                 },
                 {
                     name: "Conversaciones",
@@ -224,7 +253,7 @@ async def health_dashboard():
                 },
                 {
                     name: "Usuarios",
-                    url: "/api/users?phone=test",
+                    url: "/api/users",
                     method: "GET",
                     description: "Gestión de usuarios"
                 },
@@ -235,6 +264,38 @@ async def health_dashboard():
                     description: "Estado de integraciones externas (WhatsApp, Outlook, Supabase)"
                 }
             ];
+
+            // Función para obtener datos de prueba
+            async function fetchTestData() {
+                try {
+                    const response = await fetch('/health-check');
+                    const data = await response.json();
+                    
+                    if (data.test_data) {
+                        testData = data.test_data;
+                        console.log("Datos de prueba obtenidos:", testData);
+                    }
+                    
+                    // Una vez que tenemos los datos, actualizar las URLs de los endpoints
+                    updateEndpointUrls();
+                } catch (error) {
+                    console.error("Error al obtener datos de prueba:", error);
+                }
+            }
+
+            // Función para actualizar las URLs de los endpoints con datos reales
+            function updateEndpointUrls() {
+                endpoints.forEach(endpoint => {
+                    if (endpoint.name === "Conversaciones" && testData.user_id) {
+                        endpoint.url = `/api/conversations?user_id=${testData.user_id}`;
+                    } else if (endpoint.name === "Mensajes" && testData.conversation_id) {
+                        endpoint.url = `/api/messages?conversation_id=${testData.conversation_id}`;
+                    }
+                });
+                
+                // Recrear las tarjetas con las nuevas URLs
+                createEndpointCards();
+            }
 
             // Función para verificar un endpoint
             async function checkEndpoint(endpoint, cardElement) {
@@ -255,13 +316,40 @@ async def health_dashboard():
                         responseData = await response.text();
                     }
                     
+                    // Determinar el estado basado en el código de respuesta y el contenido
+                    let statusClass = 'status-ok';
+                    let statusText = 'OK';
+                    
+                    // Verificar códigos de error
+                    if (response.status >= 400 && response.status < 500) {
+                        statusClass = 'status-warning';
+                        statusText = 'WARNING';
+                    } else if (response.status >= 500) {
+                        statusClass = 'status-error';
+                        statusText = 'ERROR';
+                    }
+                    
+                    // Para el endpoint de integraciones, verificar el estado interno
+                    if (endpoint.name === "Integraciones" && responseData.status === "degraded") {
+                        statusClass = 'status-warning';
+                        statusText = 'DEGRADED';
+                    }
+                    
+                    // Verificar si hay errores en la respuesta
+                    if (typeof responseData === 'object' && responseData !== null) {
+                        if (responseData.detail && responseData.detail.includes("error")) {
+                            statusClass = 'status-error';
+                            statusText = 'ERROR';
+                        }
+                    }
+                    
                     // Actualizar indicador de estado
-                    statusIndicator.className = 'status-indicator status-ok';
-                    statusIndicator.textContent = 'OK';
+                    statusIndicator.className = `status-indicator ${statusClass}`;
+                    statusIndicator.textContent = statusText;
                     
                     // Mostrar detalles
                     statusDetails.innerHTML = 
-                        `<div>Status: ${response.status} ${response.statusText}</div>
+                        `<div>Status: ${response.status}</div>
                          <div>Response time: ${responseTime}ms</div>
                          <div class="response-data">${JSON.stringify(responseData, null, 2)}</div>`;
                 } catch (error) {
@@ -318,8 +406,11 @@ async def health_dashboard():
             }
 
             // Inicializar la página
-            document.addEventListener('DOMContentLoaded', () => {
-                createEndpointCards();
+            document.addEventListener('DOMContentLoaded', async () => {
+                // Primero obtener los datos de prueba
+                await fetchTestData();
+                
+                // Luego verificar todos los endpoints
                 checkAllEndpoints();
             });
         </script>
