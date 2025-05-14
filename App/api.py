@@ -236,7 +236,7 @@ async def health_dashboard():
                 },
                 {
                     name: "WhatsApp Webhook",
-                    url: "/webhook?hub.mode=subscribe&hub.verify_token=8a4c9e2f7b3d1a5c8e4f2a169c7e5e3f&hub.challenge=test",
+                    url: "/webhook/?hub.mode=subscribe&hub.verify_token=8a4c9e2f7b3d1a5c8e4f2a169c7e5e3f&hub.challenge=test",
                     method: "GET",
                     description: "Verificación del webhook de WhatsApp"
                 },
