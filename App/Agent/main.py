@@ -743,7 +743,7 @@ def schedule_meeting(email: str, date: Optional[str] = None, time: Optional[str]
             return format_response(message, "warning") + "\n\n" + get_available_slots(parsed_date)
         
         # Preparar el título y descripción de la reunión
-        meeting_subject = "Demo personalizado - Solución de software a medida | TDX"
+        meeting_subject = "TDX | Demo personalizado - Solución de software a medida"
         meeting_content = (
     "<p>Reunión para presentar un demo personalizado de su solución de software, revisar la cotización y definir los próximos pasos para su implementación con TDX.</p>"
     "<p><strong>Agenda:</strong></p>"
@@ -845,11 +845,11 @@ def schedule_meeting(email: str, date: Optional[str] = None, time: Optional[str]
         return format_response(error_msg, "error")
 
 @tool
-def find_meetings(subject_contains: str = "Reunión de consultoría") -> str:
+def find_meetings(subject_contains: str = "Demo personalizado") -> str:
     """Busca reuniones por parte del asunto.
     
     Args:
-        subject_contains: Texto que debe contener el asunto (por defecto "Reunión de consultoría")
+        subject_contains: Texto que debe contener el asunto (por defecto "Demo personalizado")
         
     Returns:
         Lista de reuniones que coinciden con el criterio
@@ -1202,7 +1202,7 @@ save_bant_data(budget, authority, need, timeline) - Guarda los datos de cualific
 save_requirements(app_type, core_features, integrations, deadline) - Guarda los requerimientos técnicos
 get_available_slots(preferred_date=None) - Muestra horarios disponibles
 schedule_meeting(email, date=None, time=None, duration=60) - Agenda una reunión con el cliente
-find_meetings(subject_contains="Reunión de consultoría") - Busca reuniones existentes
+find_meetings(subject_contains="Demo personalizado") - Busca reuniones existentes
 cancel_meeting(meeting_id=None) - Cancela una reunión programada
 reschedule_meeting(meeting_id=None, new_date=None, new_time=None, duration=None) - Reprograma una reunión
 
