@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prueba de WebSocket en Navegador</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        h1, h2, h3 {
+            color: #333;
+        }
+        .container {
+            display: flex;
+            gap: 20px;
+        }
+        .panel {
+            flex: 1;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        .connection-panel {
+            background-color: #f8f9fa;
+        }
+        .log-panel {
+            background-color: #f8f9fa;
+            height: 300px;
+            overflow-y: auto;
+        }
+        .request-panel {
+            background-color: #f8f9fa;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input, select, textarea {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .disconnect {
+            background-color: #f44336;
+        }
+        .disconnect:hover {
+            background-color: #d32f2f;
+        }
+        .log-entry {
+            margin-bottom: 8px;
+            padding: 8px;
+            border-radius: 4px;
+        }
+        .log-info {
+            background-color: #e3f2fd;
+            border-left: 4px solid #2196F3;
+        }
+        .log-success {
+            background-color: #e8f5e9;
+            border-left: 4px solid #4CAF50;
+        }
+        .log-error {
+            background-color: #ffebee;
+            border-left: 4px solid #f44336;
+        }
+        .log-event {
+            background-color: #fff8e1;
+            border-left: 4px solid #ffc107;
+        }
+        pre {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            background-color: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+        .status {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+        .status-connected {
+            background-color: #4CAF50;
+        }
+        .status-disconnected {
+            background-color: #f44336;
+        }
+        .status-connecting {
+            background-color: #ffc107;
+        }
+        .tabs {
+            display: flex;
+            border-bottom: 1px solid #ddd;
+            margin-bottom: 15px;
+        }
+        .tab {
+            padding: 10px 15px;
+            cursor: pointer;
+            border: 1px solid transparent;
+            border-bottom: none;
+            border-radius: 4px 4px 0 0;
+            margin-right: 5px;
+        }
+        .tab.active {
+            background-color: #fff;
+            border-color: #ddd;
+            border-bottom: 1px solid #fff;
+            margin-bottom: -1px;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <h1>Prueba de WebSocket en Navegador</h1>
+    <p>Esta herramienta permite probar la conexión WebSocket con el servidor.</p>
+
+    <div class="container">
+        <div class="panel connection-panel">
+            <h2>Conexión</h2>
+            <div class="form-group">
+                <label for="serverUrl">URL del Servidor:</label>
+                <input type="text" id="serverUrl" value="wss://waagentv1.onrender.com/ws" placeholder="wss://ejemplo.com/ws">
+            </div>
+            <div class="form-group">
+                <label for="token">Token (opcional):</label>
+                <input type="text" id="token" placeholder="JWT o token de autenticación">
+            </div>
+            <div class="form-group">
+                <button id="connectBtn">Conectar</button>
+                <button id="disconnectBtn" class="disconnect" disabled>Desconectar</button>
+            </div>
+            <div class="form-group">
+                <p>Estado: <span class="status status-disconnected"></span> <span id="connectionStatus">Desconectado</span></p>
+                <p>ID de Cliente: <span id="clientId">-</span></p>
+            </div>
+        </div>
+
+        <div class="panel log-panel">
+            <h2>Log de Mensajes</h2>
+            <button id="clearLogBtn">Limpiar Log</button>
+            <div id="log"></div>
+        </div>
+    </div>
+
+    <div class="panel request-panel">
+        <h2>Enviar Solicitudes</h2>
+        
+        <div class="tabs">
+            <div class="tab active" data-tab="conversations">Conversaciones</div>
+            <div class="tab" data-tab="messages">Mensajes</div>
+            <div class="tab" data-tab="users">Usuarios</div>
+            <div class="tab" data-tab="custom">Personalizado</div>
+        </div>
+        
+        <div class="tab-content active" id="conversations-tab">
+            <div class="form-group">
+                <label for="conversationAction">Acción:</label>
+                <select id="conversationAction">
+                    <option value="get_all">Obtener todas las conversaciones</option>
+                    <option value="get">Obtener una conversación</option>
+                    <option value="create">Crear conversación</option>
+                    <option value="update">Actualizar conversación</option>
+                    <option value="delete">Eliminar conversación</option>
+                </select>
+            </div>
+            
+            <div class="form-group conversation-param" id="conversation-user-id-group">
+                <label for="conversationUserId">ID de Usuario:</label>
+                <input type="text" id="conversationUserId" placeholder="ID del usuario">
+            </div>
+            
+            <div class="form-group conversation-param" id="conversation-id-group" style="display: none;">
+                <label for="conversationId">ID de Conversación:</label>
+                <input type="text" id="conversationId" placeholder="ID de la conversación">
+            </div>
+            
+            <div class="form-group conversation-param" id="conversation-title-group" style="display: none;">
+                <label for="conversationTitle">Título:</label>
+                <input type="text" id="conversationTitle" placeholder="Título de la conversación">
+            </div>
+            
+            <button id="sendConversationBtn" disabled>Enviar Solicitud</button>
+        </div>
+        
+        <div class="tab-content" id="messages-tab">
+            <div class="form-group">
+                <label for="messageAction">Acción:</label>
+                <select id="messageAction">
+                    <option value="get_by_conversation">Obtener mensajes de una conversación</option>
+                    <option value="get">Obtener un mensaje</option>
+                    <option value="create">Crear mensaje</option>
+                    <option value="update">Actualizar mensaje</option>
+                    <option value="delete">Eliminar mensaje</option>
+                </select>
+            </div>
+            
+            <div class="form-group message-param" id="message-conversation-id-group">
+                <label for="messageConversationId">ID de Conversación:</label>
+                <input type="text" id="messageConversationId" placeholder="ID de la conversación">
+            </div>
+            
+            <div class="form-group message-param" id="message-id-group" style="display: none;">
+                <label for="messageId">ID de Mensaje:</label>
+                <input type="text" id="messageId" placeholder="ID del mensaje">
+            </div>
+            
+            <div class="form-group message-param" id="message-content-group" style="display: none;">
+                <label for="messageContent">Contenido:</label>
+                <textarea id="messageContent" placeholder="Contenido del mensaje" rows="3"></textarea>
+            </div>
+            
+            <div class="form-group message-param" id="message-sender-id-group" style="display: none;">
+                <label for="messageSenderId">ID de Remitente:</label>
+                <input type="text" id="messageSenderId" placeholder="ID del remitente">
+            </div>
+            
+            <button id="sendMessageBtn" disabled>Enviar Solicitud</button>
+        </div>
+        
+        <div class="tab-content" id="users-tab">
+            <div class="form-group">
+                <label for="userAction">Acción:</label>
+                <select id="userAction">
+                    <option value="get_all">Obtener todos los usuarios</option>
+                    <option value="get">Obtener un usuario</option>
+                    <option value="create">Crear usuario</option>
+                    <option value="update">Actualizar usuario</option>
+                    <option value="delete">Eliminar usuario</option>
+                </select>
+            </div>
+            
+            <div class="form-group user-param" id="user-id-group" style="display: none;">
+                <label for="userId">ID de Usuario:</label>
+                <input type="text" id="userId" placeholder="ID del usuario">
+            </div>
+            
+            <div class="form-group user-param" id="user-name-group" style="display: none;">
+                <label for="userName">Nombre:</label>
+                <input type="text" id="userName" placeholder="Nombre del usuario">
+            </div>
+            
+            <div class="form-group user-param" id="user-email-group" style="display: none;">
+                <label for="userEmail">Email:</label>
+                <input type="email" id="userEmail" placeholder="Email del usuario">
+            </div>
+            
+            <button id="sendUserBtn" disabled>Enviar Solicitud</button>
+        </div>
+        
+        <div class="tab-content" id="custom-tab">
+            <div class="form-group">
+                <label for="customResource">Recurso:</label>
+                <input type="text" id="customResource" placeholder="Nombre del recurso">
+            </div>
+            
+            <div class="form-group">
+                <label for="customAction">Acción:</label>
+                <input type="text" id="customAction" placeholder="Nombre de la acción">
+            </div>
+            
+            <div class="form-group">
+                <label for="customPayload">Payload (JSON):</label>
+                <textarea id="customPayload" placeholder='{"param1": "valor1", "param2": "valor2"}' rows="5"></textarea>
+            </div>
+            
+            <button id="sendCustomBtn" disabled>Enviar Solicitud</button>
+        </div>
+    </div>
+
+    <script>
+        // Variables globales
+        let socket = null;
+        let connected = false;
+        let clientId = null;
+        let messageCounter = 0;
+
+        // Elementos DOM
+        const connectBtn = document.getElementById('connectBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
+        const serverUrlInput = document.getElementById('serverUrl');
+        const tokenInput = document.getElementById('token');
+        const connectionStatusSpan = document.getElementById('connectionStatus');
+        const clientIdSpan = document.getElementById('clientId');
+        const logDiv = document.getElementById('log');
+        const clearLogBtn = document.getElementById('clearLogBtn');
+        
+        const sendConversationBtn = document.getElementById('sendConversationBtn');
+        const sendMessageBtn = document.getElementById('sendMessageBtn');
+        const sendUserBtn = document.getElementById('sendUserBtn');
+        const sendCustomBtn = document.getElementById('sendCustomBtn');
+        
+        // Inicialización
+        document.addEventListener('DOMContentLoaded', function() {
+            // Configurar tabs
+            const tabs = document.querySelectorAll('.tab');
+            tabs.forEach(tab => {
+                tab.addEventListener('click', () => {
+                    // Desactivar todos los tabs
+                    tabs.forEach(t => t.classList.remove('active'));
+                    // Activar el tab clickeado
+                    tab.classList.add('active');
+                    
+                    // Ocultar todos los contenidos
+                    document.querySelectorAll('.tab-content').forEach(content => {
+                        content.classList.remove('active');
+                    });
+                    
+                    // Mostrar el contenido correspondiente
+                    const tabId = tab.getAttribute('data-tab');
+                    document.getElementById(`${tabId}-tab`).classList.add('active');
+                });
+            });
+            
+            // Configurar eventos de cambio de acción
+            document.getElementById('conversationAction').addEventListener('change', updateConversationParams);
+            document.getElementById('messageAction').addEventListener('change', updateMessageParams);
+            document.getElementById('userAction').addEventListener('change', updateUserParams);
+            
+            // Inicializar parámetros
+            updateConversationParams();
+            updateMessageParams();
+            updateUserParams();
+            
+            // Configurar botones
+            connectBtn.addEventListener('click', connect);
+            disconnectBtn.addEventListener('click', disconnect);
+            clearLogBtn.addEventListener('click', clearLog);
+            
+            sendConversationBtn.addEventListener('click', sendConversationRequest);
+            sendMessageBtn.addEventListener('click', sendMessageRequest);
+            sendUserBtn.addEventListener('click', sendUserRequest);
+            sendCustomBtn.addEventListener('click', sendCustomRequest);
+        });
+
+        // Funciones de conexión
+        function connect() {
+            if (socket) {
+                addToLog('Ya hay una conexión activa', 'error');
+                return;
+            }
+            
+            const serverUrl = serverUrlInput.value.trim();
+            if (!serverUrl) {
+                addToLog('URL del servidor no válida', 'error');
+                return;
+            }
+            
+            // Añadir token si existe
+            let fullUrl = serverUrl;
+            const token = tokenInput.value.trim();
+            if (token) {
+                fullUrl += (fullUrl.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token);
+            }
+            
+            try {
+                // Actualizar UI
+                updateConnectionStatus('connecting');
+                addToLog(`Conectando a ${fullUrl}...`, 'info');
+                
+                // Crear WebSocket
+                socket = new WebSocket(fullUrl);
+                
+                // Configurar eventos
+                socket.onopen = handleOpen;
+                socket.onmessage = handleMessage;
+                socket.onclose = handleClose;
+                socket.onerror = handleError;
+            } catch (error) {
+                addToLog(`Error al crear WebSocket: ${error.message}`, 'error');
+                updateConnectionStatus('disconnected');
+            }
+        }
+
+        function disconnect() {
+            if (!socket) {
+                addToLog('No hay conexión activa', 'error');
+                return;
+            }
+            
+            try {
+                socket.close(1000, "Desconexión manual");
+                addToLog('Desconectando...', 'info');
+            } catch (error) {
+                addToLog(`Error al desconectar: ${error.message}`, 'error');
+                socket = null;
+                updateConnectionStatus('disconnected');
+            }
+        }
+
+        // Manejadores de eventos WebSocket
+        function handleOpen(event) {
+            connected = true;
+            updateConnectionStatus('connected');
+            addToLog('Conexión establecida', 'success');
+        }
+
+        function handleMessage(event) {
+            try {
+                const message = JSON.parse(event.data);
+                
+                // Determinar tipo de mensaje
+                let logType = 'info';
+                if (message.type === 'connected') {
+                    logType = 'success';
+                    // Guardar client_id si está disponible
+                    if (message.payload && message.payload.client_id) {
+                        clientId = message.payload.client_id;
+                        clientIdSpan.textContent = clientId;
+                    }
+                } else if (message.type === 'error') {
+                    logType = 'error';
+                } else if (message.type === 'event') {
+                    logType = 'event';
+                }
+                
+                // Añadir al log
+                addToLog(`Mensaje recibido: ${JSON.stringify(message, null, 2)}`, logType);
+            } catch (error) {
+                addToLog(`Error al procesar mensaje: ${error.message}. Datos: ${event.data}`, 'error');
+            }
+        }
+
+        function handleClose(event) {
+            const reason = event.reason ? ` (${event.reason})` : '';
+            addToLog(`Conexión cerrada: código ${event.code}${reason}`, 'info');
+            
+            socket = null;
+            connected = false;
+            updateConnectionStatus('disconnected');
+        }
+
+        function handleError(event) {
+            addToLog('Error en la conexión WebSocket', 'error');
+        }
+
+        // Funciones de UI
+        function updateConnectionStatus(status) {
+            const statusDot = document.querySelector('.status');
+            
+            if (status === 'connected') {
+                connectionStatusSpan.textContent = 'Conectado';
+                statusDot.className = 'status status-connected';
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = false;
+                sendConversationBtn.disabled = false;
+                sendMessageBtn.disabled = false;
+                sendUserBtn.disabled = false;
+                sendCustomBtn.disabled = false;
+            } else if (status === 'connecting') {
+                connectionStatusSpan.textContent = 'Conectando...';
+                statusDot.className = 'status status-connecting';
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = true;
+            } else { // disconnected
+                connectionStatusSpan.textContent = 'Desconectado';
+                statusDot.className = 'status status-disconnected';
+                connectBtn.disabled = false;
+                disconnectBtn.disabled = true;
+                sendConversationBtn.disabled = true;
+                sendMessageBtn.disabled = true;
+                sendUserBtn.disabled = true;
+                sendCustomBtn.disabled = true;
+                clientId = null;
+                clientIdSpan.textContent = '-';
+            }
+        }
+
+        function addToLog(message, type = 'info') {
+            messageCounter++;
+            
+            const logEntry = document.createElement('div');
+            logEntry.className = `log-entry log-${type}`;
+            
+            const timestamp = new Date().toLocaleTimeString();
+            
+            let content = `<strong>[${timestamp}] #${messageCounter}</strong>: `;
+            
+            // Si el mensaje es un objeto JSON, formatearlo
+            if (typeof message === 'string' && message.trim().startsWith('{') && message.trim().endsWith('}')) {
+                try {
+                    const jsonObj = JSON.parse(message);
+                    content += `<pre>${JSON.stringify(jsonObj, null, 2)}</pre>`;
+                } catch (e) {
+                    content += message;
+                }
+            } else {
+                content += message;
+            }
+            
+            logEntry.innerHTML = content;
+            logDiv.appendChild(logEntry);
+            
+            // Scroll al final
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        function clearLog() {
+            logDiv.innerHTML = '';
+            messageCounter = 0;
+            addToLog('Log limpiado', 'info');
+        }
+
+        // Funciones para actualizar parámetros según la acción seleccionada
+        function updateConversationParams() {
+            const action = document.getElementById('conversationAction').value;
+            
+            // Ocultar todos los parámetros
+            document.querySelectorAll('.conversation-param').forEach(param => {
+                param.style.display = 'none';
+            });
+            
+            // Mostrar parámetros según la acción
+            if (action === 'get_all') {
+                document.getElementById('conversation-user-id-group').style.display = 'block';
+            } else if (action === 'get' || action === 'update' || action === 'delete') {
+                document.getElementById('conversation-id-group').style.display = 'block';
+            } else if (action === 'create') {
+                document.getElementById('conversation-title-group').style.display = 'block';
+                document.getElementById('conversation-user-id-group').style.display = 'block';
+            }
+        }
+
+        function updateMessageParams() {
+            const action = document.getElementById('messageAction').value;
+            
+            // Ocultar todos los parámetros
+            document.querySelectorAll('.message-param').forEach(param => {
+                param.style.display = 'none';
+            });
+            
+            // Mostrar parámetros según la acción
+            if (action === 'get_by_conversation') {
+                document.getElementById('message-conversation-id-group').style.display = 'block';
+            } else if (action === 'get' || action === 'update' || action === 'delete') {
+                document.getElementById('message-id-group').style.display = 'block';
+            } else if (action === 'create') {
+                document.getElementById('message-conversation-id-group').style.display = 'block';
+                document.getElementById('message-content-group').style.display = 'block';
+                document.getElementById('message-sender-id-group').style.display = 'block';
+            }
+        }
+
+        function updateUserParams() {
+            const action = document.getElementById('userAction').value;
+            
+            // Ocultar todos los parámetros
+            document.querySelectorAll('.user-param').forEach(param => {
+                param.style.display = 'none';
+            });
+            
+            // Mostrar parámetros según la acción
+            if (action === 'get' || action === 'update' || action === 'delete') {
+                document.getElementById('user-id-group').style.display = 'block';
+            } else if (action === 'create') {
+                document.getElementById('user-name-group').style.display = 'block';
+                document.getElementById('user-email-group').style.display = 'block';
+            }
+        }
+
+        // Funciones para enviar solicitudes
+        function sendConversationRequest() {
+            if (!connected || !socket) {
+                addToLog('No hay conexión activa', 'error');
+                return;
+            }
+            
+            const action = document.getElementById('conversationAction').value;
+            let payload = { action };
+            
+            // Añadir parámetros según la acción
+            if (action === 'get_all') {
+                const userId = document.getElementById('conversationUserId').value.trim();
+                if (userId) payload.user_id = userId;
+            } else if (action === 'get' || action === 'update' || action === 'delete') {
+                const conversationId = document.getElementById('conversationId').value.trim();
+                if (!conversationId) {
+                    addToLog('ID de conversación requerido', 'error');
+                    return;
+                }
+                payload.conversation_id = conversationId;
+            } else if (action === 'create') {
+                const title = document.getElementById('conversationTitle').value.trim();
+                const userId = document.getElementById('conversationUserId').value.trim();
+                if (!title) {
+                    addToLog('Título requerido', 'error');
+                    return;
+                }
+                payload.conversation = {
+                    title,
+                    created_by: userId || clientId || 'browser_user'
+                };
+            }
+            
+            sendRequest('conversations', payload);
+        }
+
+        function sendMessageRequest() {
+            if (!connected || !socket) {
+                addToLog('No hay conexión activa', 'error');
+                return;
+            }
+            
+            const action = document.getElementById('messageAction').value;
+            let payload = { action };
+            
+            // Añadir parámetros según la acción
+            if (action === 'get_by_conversation') {
+                const conversationId = document.getElementById('messageConversationId').value.trim();
+                if (!conversationId) {
+                    addToLog('ID de conversación requerido', 'error');
+                    return;
+                }
+                payload.conversation_id = conversationId;
+            } else if (action === 'get' || action === 'update' || action === 'delete') {
+                const messageId = document.getElementById('messageId').value.trim();
+                if (!messageId) {
+                    addToLog('ID de mensaje requerido', 'error');
+                    return;
+                }
+                payload.message_id = messageId;
+            } else if (action === 'create') {
+                const conversationId = document.getElementById('messageConversationId').value.trim();
+                const content = document.getElementById('messageContent').value.trim();
+                const senderId = document.getElementById('messageSenderId').value.trim();
+                
+                if (!conversationId) {
+                    addToLog('ID de conversación requerido', 'error');
+                    return;
+                }
+                if (!content) {
+                    addToLog('Contenido requerido', 'error');
+                    return;
+                }
+                
+                payload.message = {
+                    conversation_id: conversationId,
+                    content,
+                    sender_id: senderId || clientId || 'browser_user'
+                };
+            }
+            
+            sendRequest('messages', payload);
+        }
+
+        function sendUserRequest() {
+            if (!connected || !socket) {
+                addToLog('No hay conexión activa', 'error');
+                return;
+            }
+            
+            const action = document.getElementById('userAction').value;
+            let payload = { action };
+            
+            // Añadir parámetros según la acción
+            if (action === 'get' || action === 'update' || action === 'delete') {
+                const userId = document.getElementById('userId').value.trim();
+                if (!userId) {
+                    addToLog('ID de usuario requerido', 'error');
+                    return;
+                }
+                payload.user_id = userId;
+            } else if (action === 'create') {
+                const name = document.getElementById('userName').value.trim();
+                const email = document.getElementById('userEmail').value.trim();
+                
+                if (!name) {
+                    addToLog('Nombre requerido', 'error');
+                    return;
+                }
+                
+                payload.user = {
+                    name,
+                    email: email || null
+                };
+            }
+            
+            sendRequest('users', payload);
+        }
+
+        function sendCustomRequest() {
+            if (!connected || !socket) {
+                addToLog('No hay conexión activa', 'error');
+                return;
+            }
+            
+            const resource = document.getElementById('customResource').value.trim();
+            const action = document.getElementById('customAction').value.trim();
+            const payloadStr = document.getElementById('customPayload').value.trim();
+            
+            if (!resource) {
+                addToLog('Recurso requerido', 'error');
+                return;
+            }
+            
+            if (!action) {
+                addToLog('Acción requerida', 'error');
+                return;
+            }
+            
+            let payload = { action };
+            
+            // Añadir payload personalizado si existe
+            if (payloadStr) {
+                try {
+                    const customPayload = JSON.parse(payloadStr);
+                    payload = { ...payload, ...customPayload };
+                } catch (error) {
+                    addToLog(`Error al parsear payload JSON: ${error.message}`, 'error');
+                    return;
+                }
+            }
+            
+            sendRequest(resource, payload);
+        }
+
+        // Función genérica para enviar solicitudes
+        function sendRequest(resource, payload) {
+            if (!connected || !socket) {
+                addToLog('No hay conexión activa', 'error');
+                return;
+            }
+            
+            // Crear mensaje de solicitud
+            const requestId = 'req-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
+            const request = {
+                type: 'request',
+                id: requestId,
+                resource,
+                payload
+            };
+            
+            try {
+                // Enviar solicitud
+                socket.send(JSON.stringify(request));
+                addToLog(`Solicitud enviada: ${JSON.stringify(request, null, 2)}`, 'info');
+            } catch (error) {
+                addToLog(`Error al enviar solicitud: ${error.message}`, 'error');
+            }
+        }
+    </script>
+</body>
+</html>

@@ -7,12 +7,15 @@ import logging
 from .base import BaseHandler
 from ..events.dispatcher import dispatch_event
 from App.DB.db_operations import (
-    get_all_users,
+    get_user_by_phone,
+    get_user_by_email,
     get_user_by_id,
     create_user,
     update_user,
-    delete_user
+    get_or_create_user
 )
+import asyncio
+from functools import wraps
 
 logger = logging.getLogger(__name__)
 
@@ -29,36 +32,62 @@ class UsersHandler(BaseHandler):
             "delete": self.delete_user
         }
     
+    # Función auxiliar para convertir funciones síncronas en asíncronas
+    def to_async(self, func):
+        @wraps(func)
+        async def run(*args, **kwargs):
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(None, lambda: func(*args, **kwargs))
+        return run
+    
     async def get_all_users(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Obtiene todos los usuarios."""
-        # Parámetros opcionales de paginación
-        limit = payload.get("limit", 50)
-        offset = payload.get("offset", 0)
+        # En esta implementación inicial, no tenemos una función para obtener todos los usuarios
+        # Podríamos implementar una búsqueda por criterios
+        phone = payload.get("phone")
+        email = payload.get("email")
         
-        # Obtener usuarios de la base de datos
-        users = await get_all_users(limit, offset)
+        users = []
+        
+        if phone:
+            user = await self.to_async(get_user_by_phone)(phone)
+            if user:
+                users.append(user)
+        elif email:
+            user = await self.to_async(get_user_by_email)(email)
+            if user:
+                users.append(user)
+        else:
+            # Sin criterios de búsqueda, devolvemos una lista vacía
+            # En una implementación completa, se debería consultar todos los usuarios
+            pass
         
         return {
             "users": users,
-            "pagination": {
-                "limit": limit,
-                "offset": offset,
-                "total": len(users)  # Esto debería ser el total real, no solo los recuperados
-            }
+            "total": len(users)
         }
     
     async def get_user(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Obtiene un usuario por su ID."""
+        """Obtiene un usuario por su ID, teléfono o email."""
         user_id = payload.get("user_id")
+        phone = payload.get("phone")
+        email = payload.get("email")
         
-        if not user_id:
-            raise ValueError("Se requiere user_id para obtener usuario")
+        if not user_id and not phone and not email:
+            raise ValueError("Se requiere user_id, phone o email para obtener usuario")
         
         # Obtener usuario de la base de datos
-        user = await get_user_by_id(user_id)
+        user = None
+        
+        if user_id:
+            user = await self.to_async(get_user_by_id)(user_id)
+        elif phone:
+            user = await self.to_async(get_user_by_phone)(phone)
+        elif email:
+            user = await self.to_async(get_user_by_email)(email)
         
         if not user:
-            raise ValueError(f"Usuario no encontrado: {user_id}")
+            raise ValueError(f"Usuario no encontrado")
         
         return {
             "user": user
@@ -71,8 +100,12 @@ class UsersHandler(BaseHandler):
         if not user_data:
             raise ValueError("Se requieren datos de usuario para crear")
         
+        # Validar datos mínimos
+        if not user_data.get("phone") and not user_data.get("email"):
+            raise ValueError("Se requiere al menos phone o email para crear usuario")
+        
         # Crear usuario en la base de datos
-        new_user = await create_user(user_data)
+        new_user = await self.to_async(create_user)(user_data)
         
         # Notificar a los clientes sobre el nuevo usuario
         await dispatch_event("user_created", {
@@ -94,8 +127,13 @@ class UsersHandler(BaseHandler):
         if not user_data:
             raise ValueError("Se requieren datos de usuario para actualizar")
         
+        # Verificar que el usuario existe
+        existing_user = await self.to_async(get_user_by_id)(user_id)
+        if not existing_user:
+            raise ValueError(f"Usuario no encontrado: {user_id}")
+        
         # Actualizar usuario en la base de datos
-        updated_user = await update_user(user_id, user_data)
+        updated_user = await self.to_async(update_user)(user_id, user_data)
         
         # Notificar a los clientes sobre la actualización
         await dispatch_event("user_updated", {
@@ -114,16 +152,6 @@ class UsersHandler(BaseHandler):
         if not user_id:
             raise ValueError("Se requiere user_id para eliminar")
         
-        # Eliminar usuario de la base de datos
-        success = await delete_user(user_id)
-        
-        if success:
-            # Notificar a los clientes sobre la eliminación
-            await dispatch_event("user_deleted", {
-                "user_id": user_id
-            })
-        
-        return {
-            "success": success,
-            "user_id": user_id
-        }
+        # En esta implementación inicial, no podemos eliminar usuarios
+        # Devolvemos un error
+        raise ValueError("La eliminación de usuarios no está implementada")

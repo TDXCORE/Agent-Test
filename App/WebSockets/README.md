@@ -67,11 +67,13 @@ if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
 ```
 
-## Pruebas rápidas
+## Pruebas
+
+### Pruebas Locales
 
 Para probar rápidamente la implementación de WebSockets sin modificar la aplicación principal:
 
-### Opción 1: Prueba automatizada (recomendado)
+#### Opción 1: Prueba automatizada (recomendado)
 
 Ejecuta el script de prueba automatizada que inicia tanto el servidor como el cliente:
 
@@ -81,7 +83,7 @@ python -m App.WebSockets.run_test
 
 Este script inicia el servidor, espera a que esté listo, ejecuta el cliente y muestra la salida de ambos procesos en tiempo real.
 
-### Opción 2: Prueba manual
+#### Opción 2: Prueba manual
 
 1. Inicia el servidor de prueba:
 
@@ -96,6 +98,32 @@ python -m App.WebSockets.simple_test
 ```
 
 También puedes verificar que el servidor está funcionando correctamente abriendo http://localhost:8000 en tu navegador.
+
+### Pruebas en Servidor Remoto
+
+Para probar la implementación de WebSockets en un servidor remoto (como el desplegado en Render):
+
+#### Opción 1: Prueba automatizada con Python
+
+Ejecuta el script de prueba remota:
+
+```bash
+python -m App.WebSockets.run_remote_test
+```
+
+Este script se conectará a `wss://waagentv1.onrender.com/ws` y ejecutará pruebas exhaustivas de todas las funcionalidades.
+
+#### Opción 2: Prueba interactiva con navegador
+
+Inicia un servidor web local para la interfaz de prueba:
+
+```bash
+python -m App.WebSockets.serve_browser_test
+```
+
+Esto abrirá automáticamente tu navegador con una interfaz gráfica para probar la conexión WebSocket.
+
+Para más detalles sobre las pruebas remotas, consulta el archivo `REMOTE_TESTING.md`.
 
 ## Uso en el backend
 
