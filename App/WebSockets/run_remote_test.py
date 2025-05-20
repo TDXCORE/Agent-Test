@@ -7,6 +7,13 @@ import os
 import sys
 import subprocess
 import argparse
+from dotenv import load_dotenv
+
+# Cargar variables de entorno
+load_dotenv()
+
+# Obtener token de WebSocket
+WEBSOCKET_AUTH_TOKEN = os.getenv("WEBSOCKET_AUTH_TOKEN")
 
 # Añadir directorio raíz al path para poder importar App
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -19,7 +26,7 @@ def main():
     # Configurar parser de argumentos
     parser = argparse.ArgumentParser(description="Ejecutar pruebas de WebSocket en servidor remoto")
     parser.add_argument("--url", default="waagentv1.onrender.com", help="URL base del servidor (sin protocolo)")
-    parser.add_argument("--token", help="Token de autenticación (opcional)")
+    parser.add_argument("--token", default=WEBSOCKET_AUTH_TOKEN, help="Token de autenticación (opcional, por defecto usa WEBSOCKET_AUTH_TOKEN)")
     parser.add_argument("--insecure", action="store_true", help="Usar conexión no segura (ws:// en lugar de wss://)")
     parser.add_argument("--timeout", type=int, default=10, help="Timeout en segundos para operaciones")
     parser.add_argument("--debug", action="store_true", help="Activar modo debug")
