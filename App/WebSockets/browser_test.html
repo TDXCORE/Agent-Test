@@ -3,39 +3,57 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Prueba de WebSocket en Navegador</title>
+    <title>Prueba de WebSockets</title>
     <style>
         body {
             font-family: Arial, sans-serif;
-            max-width: 1000px;
+            max-width: 800px;
             margin: 0 auto;
             padding: 20px;
-            line-height: 1.6;
         }
-        h1, h2, h3 {
+        h1 {
             color: #333;
         }
         .container {
             display: flex;
+            flex-direction: column;
             gap: 20px;
         }
-        .panel {
-            flex: 1;
+        .card {
             border: 1px solid #ddd;
-            border-radius: 5px;
+            border-radius: 4px;
             padding: 15px;
-            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
-        .connection-panel {
-            background-color: #f8f9fa;
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
         }
-        .log-panel {
-            background-color: #f8f9fa;
-            height: 300px;
-            overflow-y: auto;
+        .card-title {
+            font-weight: bold;
+            font-size: 18px;
+            margin: 0;
         }
-        .request-panel {
-            background-color: #f8f9fa;
+        .status {
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .status-connected {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .status-disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .status-connecting {
+            background-color: #fff3cd;
+            color: #856404;
         }
         .form-group {
             margin-bottom: 15px;
@@ -53,71 +71,46 @@
             box-sizing: border-box;
         }
         button {
-            background-color: #4CAF50;
+            background-color: #007bff;
             color: white;
-            padding: 10px 15px;
             border: none;
+            padding: 10px 15px;
             border-radius: 4px;
             cursor: pointer;
-            font-size: 16px;
         }
         button:hover {
-            background-color: #45a049;
+            background-color: #0069d9;
         }
         button:disabled {
             background-color: #cccccc;
             cursor: not-allowed;
         }
-        .disconnect {
-            background-color: #f44336;
-        }
-        .disconnect:hover {
-            background-color: #d32f2f;
+        .log-container {
+            background-color: #f8f9fa;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+            height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            white-space: pre-wrap;
         }
         .log-entry {
-            margin-bottom: 8px;
-            padding: 8px;
-            border-radius: 4px;
+            margin-bottom: 5px;
+            padding: 5px;
+            border-bottom: 1px solid #eee;
         }
-        .log-info {
-            background-color: #e3f2fd;
-            border-left: 4px solid #2196F3;
+        .log-entry-request {
+            color: #0066cc;
         }
-        .log-success {
-            background-color: #e8f5e9;
-            border-left: 4px solid #4CAF50;
+        .log-entry-response {
+            color: #28a745;
         }
-        .log-error {
-            background-color: #ffebee;
-            border-left: 4px solid #f44336;
+        .log-entry-event {
+            color: #6f42c1;
         }
-        .log-event {
-            background-color: #fff8e1;
-            border-left: 4px solid #ffc107;
-        }
-        pre {
-            white-space: pre-wrap;
-            word-wrap: break-word;
-            background-color: #f5f5f5;
-            padding: 10px;
-            border-radius: 4px;
-            overflow-x: auto;
-        }
-        .status {
-            display: inline-block;
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            margin-right: 5px;
-        }
-        .status-connected {
-            background-color: #4CAF50;
-        }
-        .status-disconnected {
-            background-color: #f44336;
-        }
-        .status-connecting {
-            background-color: #ffc107;
+        .log-entry-error {
+            color: #dc3545;
         }
         .tabs {
             display: flex;
@@ -128,15 +121,13 @@
             padding: 10px 15px;
             cursor: pointer;
             border: 1px solid transparent;
-            border-bottom: none;
-            border-radius: 4px 4px 0 0;
-            margin-right: 5px;
         }
         .tab.active {
-            background-color: #fff;
-            border-color: #ddd;
-            border-bottom: 1px solid #fff;
+            border: 1px solid #ddd;
+            border-bottom-color: white;
+            border-radius: 4px 4px 0 0;
             margin-bottom: -1px;
+            background-color: white;
         }
         .tab-content {
             display: none;
@@ -147,632 +138,533 @@
     </style>
 </head>
 <body>
-    <h1>Prueba de WebSocket en Navegador</h1>
-    <p>Esta herramienta permite probar la conexión WebSocket con el servidor.</p>
-
+    <h1>Prueba de WebSockets</h1>
+    
     <div class="container">
-        <div class="panel connection-panel">
-            <h2>Conexión</h2>
-            <div class="form-group">
-                <label for="serverUrl">URL del Servidor:</label>
-                <input type="text" id="serverUrl" value="wss://waagentv1.onrender.com/ws" placeholder="wss://ejemplo.com/ws">
+        <!-- Tarjeta de conexión -->
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Conexión</h2>
+                <div id="connection-status" class="status status-disconnected">Desconectado</div>
             </div>
+            
             <div class="form-group">
-                <label for="token">Token (opcional):</label>
-                <input type="text" id="token" placeholder="JWT o token de autenticación">
+                <label for="server-url">URL del servidor:</label>
+                <input type="text" id="server-url" value="ws://localhost:8000/ws" />
             </div>
+            
             <div class="form-group">
-                <button id="connectBtn">Conectar</button>
-                <button id="disconnectBtn" class="disconnect" disabled>Desconectar</button>
+                <label for="auth-token">Token de autenticación (opcional):</label>
+                <input type="text" id="auth-token" placeholder="Dejar en blanco para conexión sin autenticación" />
             </div>
-            <div class="form-group">
-                <p>Estado: <span class="status status-disconnected"></span> <span id="connectionStatus">Desconectado</span></p>
-                <p>ID de Cliente: <span id="clientId">-</span></p>
+            
+            <div>
+                <button id="connect-btn">Conectar</button>
+                <button id="disconnect-btn" disabled>Desconectar</button>
             </div>
         </div>
-
-        <div class="panel log-panel">
-            <h2>Log de Mensajes</h2>
-            <button id="clearLogBtn">Limpiar Log</button>
-            <div id="log"></div>
+        
+        <!-- Tarjeta de operaciones -->
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Operaciones</h2>
+            </div>
+            
+            <div class="tabs">
+                <div class="tab active" data-tab="conversations">Conversaciones</div>
+                <div class="tab" data-tab="messages">Mensajes</div>
+                <div class="tab" data-tab="users">Usuarios</div>
+            </div>
+            
+            <!-- Tab de conversaciones -->
+            <div class="tab-content active" id="tab-conversations">
+                <div class="form-group">
+                    <label for="conversation-action">Acción:</label>
+                    <select id="conversation-action">
+                        <option value="get_all">Obtener todas</option>
+                        <option value="get_by_id">Obtener por ID</option>
+                        <option value="create">Crear</option>
+                        <option value="update">Actualizar</option>
+                        <option value="delete">Eliminar</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="conversation-data">Datos (JSON):</label>
+                    <textarea id="conversation-data" rows="5">{"user_id": "test_user"}</textarea>
+                </div>
+                
+                <button id="send-conversation-btn" disabled>Enviar</button>
+            </div>
+            
+            <!-- Tab de mensajes -->
+            <div class="tab-content" id="tab-messages">
+                <div class="form-group">
+                    <label for="message-action">Acción:</label>
+                    <select id="message-action">
+                        <option value="get_by_conversation">Obtener por conversación</option>
+                        <option value="get_by_id">Obtener por ID</option>
+                        <option value="create">Crear</option>
+                        <option value="update">Actualizar</option>
+                        <option value="delete">Eliminar</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="message-data">Datos (JSON):</label>
+                    <textarea id="message-data" rows="5">{"conversation_id": "test_conversation"}</textarea>
+                </div>
+                
+                <button id="send-message-btn" disabled>Enviar</button>
+            </div>
+            
+            <!-- Tab de usuarios -->
+            <div class="tab-content" id="tab-users">
+                <div class="form-group">
+                    <label for="user-action">Acción:</label>
+                    <select id="user-action">
+                        <option value="get_all">Obtener todos</option>
+                        <option value="get_by_id">Obtener por ID</option>
+                        <option value="create">Crear</option>
+                        <option value="update">Actualizar</option>
+                        <option value="delete">Eliminar</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="user-data">Datos (JSON):</label>
+                    <textarea id="user-data" rows="5">{}</textarea>
+                </div>
+                
+                <button id="send-user-btn" disabled>Enviar</button>
+            </div>
+        </div>
+        
+        <!-- Tarjeta de logs -->
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Logs</h2>
+                <button id="clear-logs-btn">Limpiar</button>
+            </div>
+            
+            <div id="logs" class="log-container"></div>
         </div>
     </div>
-
-    <div class="panel request-panel">
-        <h2>Enviar Solicitudes</h2>
-        
-        <div class="tabs">
-            <div class="tab active" data-tab="conversations">Conversaciones</div>
-            <div class="tab" data-tab="messages">Mensajes</div>
-            <div class="tab" data-tab="users">Usuarios</div>
-            <div class="tab" data-tab="custom">Personalizado</div>
-        </div>
-        
-        <div class="tab-content active" id="conversations-tab">
-            <div class="form-group">
-                <label for="conversationAction">Acción:</label>
-                <select id="conversationAction">
-                    <option value="get_all">Obtener todas las conversaciones</option>
-                    <option value="get">Obtener una conversación</option>
-                    <option value="create">Crear conversación</option>
-                    <option value="update">Actualizar conversación</option>
-                    <option value="delete">Eliminar conversación</option>
-                </select>
-            </div>
-            
-            <div class="form-group conversation-param" id="conversation-user-id-group">
-                <label for="conversationUserId">ID de Usuario:</label>
-                <input type="text" id="conversationUserId" placeholder="ID del usuario">
-            </div>
-            
-            <div class="form-group conversation-param" id="conversation-id-group" style="display: none;">
-                <label for="conversationId">ID de Conversación:</label>
-                <input type="text" id="conversationId" placeholder="ID de la conversación">
-            </div>
-            
-            <div class="form-group conversation-param" id="conversation-title-group" style="display: none;">
-                <label for="conversationTitle">Título:</label>
-                <input type="text" id="conversationTitle" placeholder="Título de la conversación">
-            </div>
-            
-            <button id="sendConversationBtn" disabled>Enviar Solicitud</button>
-        </div>
-        
-        <div class="tab-content" id="messages-tab">
-            <div class="form-group">
-                <label for="messageAction">Acción:</label>
-                <select id="messageAction">
-                    <option value="get_by_conversation">Obtener mensajes de una conversación</option>
-                    <option value="get">Obtener un mensaje</option>
-                    <option value="create">Crear mensaje</option>
-                    <option value="update">Actualizar mensaje</option>
-                    <option value="delete">Eliminar mensaje</option>
-                </select>
-            </div>
-            
-            <div class="form-group message-param" id="message-conversation-id-group">
-                <label for="messageConversationId">ID de Conversación:</label>
-                <input type="text" id="messageConversationId" placeholder="ID de la conversación">
-            </div>
-            
-            <div class="form-group message-param" id="message-id-group" style="display: none;">
-                <label for="messageId">ID de Mensaje:</label>
-                <input type="text" id="messageId" placeholder="ID del mensaje">
-            </div>
-            
-            <div class="form-group message-param" id="message-content-group" style="display: none;">
-                <label for="messageContent">Contenido:</label>
-                <textarea id="messageContent" placeholder="Contenido del mensaje" rows="3"></textarea>
-            </div>
-            
-            <div class="form-group message-param" id="message-sender-id-group" style="display: none;">
-                <label for="messageSenderId">ID de Remitente:</label>
-                <input type="text" id="messageSenderId" placeholder="ID del remitente">
-            </div>
-            
-            <button id="sendMessageBtn" disabled>Enviar Solicitud</button>
-        </div>
-        
-        <div class="tab-content" id="users-tab">
-            <div class="form-group">
-                <label for="userAction">Acción:</label>
-                <select id="userAction">
-                    <option value="get_all">Obtener todos los usuarios</option>
-                    <option value="get">Obtener un usuario</option>
-                    <option value="create">Crear usuario</option>
-                    <option value="update">Actualizar usuario</option>
-                    <option value="delete">Eliminar usuario</option>
-                </select>
-            </div>
-            
-            <div class="form-group user-param" id="user-id-group" style="display: none;">
-                <label for="userId">ID de Usuario:</label>
-                <input type="text" id="userId" placeholder="ID del usuario">
-            </div>
-            
-            <div class="form-group user-param" id="user-name-group" style="display: none;">
-                <label for="userName">Nombre:</label>
-                <input type="text" id="userName" placeholder="Nombre del usuario">
-            </div>
-            
-            <div class="form-group user-param" id="user-email-group" style="display: none;">
-                <label for="userEmail">Email:</label>
-                <input type="email" id="userEmail" placeholder="Email del usuario">
-            </div>
-            
-            <button id="sendUserBtn" disabled>Enviar Solicitud</button>
-        </div>
-        
-        <div class="tab-content" id="custom-tab">
-            <div class="form-group">
-                <label for="customResource">Recurso:</label>
-                <input type="text" id="customResource" placeholder="Nombre del recurso">
-            </div>
-            
-            <div class="form-group">
-                <label for="customAction">Acción:</label>
-                <input type="text" id="customAction" placeholder="Nombre de la acción">
-            </div>
-            
-            <div class="form-group">
-                <label for="customPayload">Payload (JSON):</label>
-                <textarea id="customPayload" placeholder='{"param1": "valor1", "param2": "valor2"}' rows="5"></textarea>
-            </div>
-            
-            <button id="sendCustomBtn" disabled>Enviar Solicitud</button>
-        </div>
-    </div>
-
+    
     <script>
-        // Variables globales
+        // Estado de la conexión
         let socket = null;
-        let connected = false;
-        let clientId = null;
-        let messageCounter = 0;
-
+        let isConnected = false;
+        let pendingRequests = {};
+        
         // Elementos DOM
-        const connectBtn = document.getElementById('connectBtn');
-        const disconnectBtn = document.getElementById('disconnectBtn');
-        const serverUrlInput = document.getElementById('serverUrl');
-        const tokenInput = document.getElementById('token');
-        const connectionStatusSpan = document.getElementById('connectionStatus');
-        const clientIdSpan = document.getElementById('clientId');
-        const logDiv = document.getElementById('log');
-        const clearLogBtn = document.getElementById('clearLogBtn');
+        const connectBtn = document.getElementById('connect-btn');
+        const disconnectBtn = document.getElementById('disconnect-btn');
+        const connectionStatus = document.getElementById('connection-status');
+        const serverUrlInput = document.getElementById('server-url');
+        const authTokenInput = document.getElementById('auth-token');
+        const logsContainer = document.getElementById('logs');
+        const clearLogsBtn = document.getElementById('clear-logs-btn');
         
-        const sendConversationBtn = document.getElementById('sendConversationBtn');
-        const sendMessageBtn = document.getElementById('sendMessageBtn');
-        const sendUserBtn = document.getElementById('sendUserBtn');
-        const sendCustomBtn = document.getElementById('sendCustomBtn');
+        const sendConversationBtn = document.getElementById('send-conversation-btn');
+        const sendMessageBtn = document.getElementById('send-message-btn');
+        const sendUserBtn = document.getElementById('send-user-btn');
         
-        // Inicialización
-        document.addEventListener('DOMContentLoaded', function() {
-            // Configurar tabs
-            const tabs = document.querySelectorAll('.tab');
-            tabs.forEach(tab => {
-                tab.addEventListener('click', () => {
-                    // Desactivar todos los tabs
-                    tabs.forEach(t => t.classList.remove('active'));
-                    // Activar el tab clickeado
-                    tab.classList.add('active');
-                    
-                    // Ocultar todos los contenidos
-                    document.querySelectorAll('.tab-content').forEach(content => {
-                        content.classList.remove('active');
-                    });
-                    
-                    // Mostrar el contenido correspondiente
-                    const tabId = tab.getAttribute('data-tab');
-                    document.getElementById(`${tabId}-tab`).classList.add('active');
-                });
+        const conversationAction = document.getElementById('conversation-action');
+        const conversationData = document.getElementById('conversation-data');
+        const messageAction = document.getElementById('message-action');
+        const messageData = document.getElementById('message-data');
+        const userAction = document.getElementById('user-action');
+        const userData = document.getElementById('user-data');
+        
+        // Configurar tabs
+        const tabs = document.querySelectorAll('.tab');
+        const tabContents = document.querySelectorAll('.tab-content');
+        
+        tabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                // Desactivar todos los tabs
+                tabs.forEach(t => t.classList.remove('active'));
+                tabContents.forEach(c => c.classList.remove('active'));
+                
+                // Activar el tab seleccionado
+                tab.classList.add('active');
+                const tabId = `tab-${tab.dataset.tab}`;
+                document.getElementById(tabId).classList.add('active');
             });
-            
-            // Configurar eventos de cambio de acción
-            document.getElementById('conversationAction').addEventListener('change', updateConversationParams);
-            document.getElementById('messageAction').addEventListener('change', updateMessageParams);
-            document.getElementById('userAction').addEventListener('change', updateUserParams);
-            
-            // Inicializar parámetros
-            updateConversationParams();
-            updateMessageParams();
-            updateUserParams();
-            
-            // Configurar botones
-            connectBtn.addEventListener('click', connect);
-            disconnectBtn.addEventListener('click', disconnect);
-            clearLogBtn.addEventListener('click', clearLog);
-            
-            sendConversationBtn.addEventListener('click', sendConversationRequest);
-            sendMessageBtn.addEventListener('click', sendMessageRequest);
-            sendUserBtn.addEventListener('click', sendUserRequest);
-            sendCustomBtn.addEventListener('click', sendCustomRequest);
         });
-
-        // Funciones de conexión
+        
+        // Función para agregar log
+        function addLog(message, type = 'info') {
+            const logEntry = document.createElement('div');
+            logEntry.className = `log-entry log-entry-${type}`;
+            
+            // Formatear objetos JSON
+            if (typeof message === 'object') {
+                message = JSON.stringify(message, null, 2);
+            }
+            
+            // Agregar timestamp
+            const timestamp = new Date().toLocaleTimeString();
+            logEntry.textContent = `[${timestamp}] ${message}`;
+            
+            logsContainer.appendChild(logEntry);
+            logsContainer.scrollTop = logsContainer.scrollHeight;
+        }
+        
+        // Función para conectar al servidor WebSocket
         function connect() {
             if (socket) {
-                addToLog('Ya hay una conexión activa', 'error');
                 return;
             }
             
-            const serverUrl = serverUrlInput.value.trim();
-            if (!serverUrl) {
-                addToLog('URL del servidor no válida', 'error');
-                return;
-            }
+            // Obtener URL y token
+            let url = serverUrlInput.value.trim();
+            const token = authTokenInput.value.trim();
             
-            // Añadir token si existe
-            let fullUrl = serverUrl;
-            const token = tokenInput.value.trim();
+            // Agregar token a la URL si se proporciona
             if (token) {
-                fullUrl += (fullUrl.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token);
+                url += (url.includes('?') ? '&' : '?') + `token=${encodeURIComponent(token)}`;
             }
+            
+            // Actualizar UI
+            connectionStatus.textContent = 'Conectando...';
+            connectionStatus.className = 'status status-connecting';
+            connectBtn.disabled = true;
             
             try {
-                // Actualizar UI
-                updateConnectionStatus('connecting');
-                addToLog(`Conectando a ${fullUrl}...`, 'info');
+                // Crear conexión WebSocket
+                addLog(`Conectando a ${url}...`);
+                socket = new WebSocket(url);
                 
-                // Crear WebSocket
-                socket = new WebSocket(fullUrl);
-                
-                // Configurar eventos
+                // Configurar manejadores de eventos
                 socket.onopen = handleOpen;
-                socket.onmessage = handleMessage;
                 socket.onclose = handleClose;
+                socket.onmessage = handleMessage;
                 socket.onerror = handleError;
             } catch (error) {
-                addToLog(`Error al crear WebSocket: ${error.message}`, 'error');
-                updateConnectionStatus('disconnected');
+                addLog(`Error al crear conexión: ${error.message}`, 'error');
+                updateConnectionStatus(false);
             }
         }
-
+        
+        // Función para desconectar
         function disconnect() {
             if (!socket) {
-                addToLog('No hay conexión activa', 'error');
                 return;
             }
             
             try {
-                socket.close(1000, "Desconexión manual");
-                addToLog('Desconectando...', 'info');
+                socket.close(1000, 'Cierre normal');
             } catch (error) {
-                addToLog(`Error al desconectar: ${error.message}`, 'error');
-                socket = null;
-                updateConnectionStatus('disconnected');
+                addLog(`Error al cerrar conexión: ${error.message}`, 'error');
             }
+            
+            socket = null;
+            updateConnectionStatus(false);
         }
-
-        // Manejadores de eventos WebSocket
-        function handleOpen(event) {
-            connected = true;
-            updateConnectionStatus('connected');
-            addToLog('Conexión establecida', 'success');
+        
+        // Manejador de evento de apertura de conexión
+        function handleOpen() {
+            addLog('Conexión establecida', 'info');
+            updateConnectionStatus(true);
         }
-
+        
+        // Manejador de evento de cierre de conexión
+        function handleClose(event) {
+            addLog(`Conexión cerrada: ${event.code} - ${event.reason}`, 'info');
+            socket = null;
+            updateConnectionStatus(false);
+            
+            // Rechazar todas las solicitudes pendientes
+            Object.keys(pendingRequests).forEach(id => {
+                const { reject } = pendingRequests[id];
+                reject(new Error('Conexión cerrada'));
+                delete pendingRequests[id];
+            });
+        }
+        
+        // Manejador de evento de mensaje recibido
         function handleMessage(event) {
             try {
                 const message = JSON.parse(event.data);
                 
                 // Determinar tipo de mensaje
                 let logType = 'info';
-                if (message.type === 'connected') {
-                    logType = 'success';
-                    // Guardar client_id si está disponible
-                    if (message.payload && message.payload.client_id) {
-                        clientId = message.payload.client_id;
-                        clientIdSpan.textContent = clientId;
-                    }
-                } else if (message.type === 'error') {
-                    logType = 'error';
+                if (message.type === 'response') {
+                    logType = 'response';
                 } else if (message.type === 'event') {
                     logType = 'event';
+                } else if (message.type === 'error') {
+                    logType = 'error';
                 }
                 
-                // Añadir al log
-                addToLog(`Mensaje recibido: ${JSON.stringify(message, null, 2)}`, logType);
+                addLog(message, logType);
+                
+                // Procesar respuestas a solicitudes
+                if (message.id && pendingRequests[message.id]) {
+                    const { resolve, reject } = pendingRequests[message.id];
+                    
+                    if (message.type === 'error') {
+                        reject(new Error(message.payload.message || 'Error desconocido'));
+                    } else {
+                        resolve(message.payload);
+                    }
+                    
+                    delete pendingRequests[message.id];
+                }
             } catch (error) {
-                addToLog(`Error al procesar mensaje: ${error.message}. Datos: ${event.data}`, 'error');
+                addLog(`Error al procesar mensaje: ${error.message}`, 'error');
             }
         }
-
-        function handleClose(event) {
-            const reason = event.reason ? ` (${event.reason})` : '';
-            addToLog(`Conexión cerrada: código ${event.code}${reason}`, 'info');
-            
-            socket = null;
-            connected = false;
-            updateConnectionStatus('disconnected');
-        }
-
+        
+        // Manejador de evento de error
         function handleError(event) {
-            addToLog('Error en la conexión WebSocket', 'error');
+            addLog('Error en conexión WebSocket', 'error');
         }
-
-        // Funciones de UI
-        function updateConnectionStatus(status) {
-            const statusDot = document.querySelector('.status');
+        
+        // Función para actualizar el estado de la conexión en la UI
+        function updateConnectionStatus(connected) {
+            isConnected = connected;
             
-            if (status === 'connected') {
-                connectionStatusSpan.textContent = 'Conectado';
-                statusDot.className = 'status status-connected';
+            if (connected) {
+                connectionStatus.textContent = 'Conectado';
+                connectionStatus.className = 'status status-connected';
                 connectBtn.disabled = true;
                 disconnectBtn.disabled = false;
                 sendConversationBtn.disabled = false;
                 sendMessageBtn.disabled = false;
                 sendUserBtn.disabled = false;
-                sendCustomBtn.disabled = false;
-            } else if (status === 'connecting') {
-                connectionStatusSpan.textContent = 'Conectando...';
-                statusDot.className = 'status status-connecting';
-                connectBtn.disabled = true;
-                disconnectBtn.disabled = true;
-            } else { // disconnected
-                connectionStatusSpan.textContent = 'Desconectado';
-                statusDot.className = 'status status-disconnected';
+            } else {
+                connectionStatus.textContent = 'Desconectado';
+                connectionStatus.className = 'status status-disconnected';
                 connectBtn.disabled = false;
                 disconnectBtn.disabled = true;
                 sendConversationBtn.disabled = true;
                 sendMessageBtn.disabled = true;
                 sendUserBtn.disabled = true;
-                sendCustomBtn.disabled = true;
-                clientId = null;
-                clientIdSpan.textContent = '-';
             }
         }
-
-        function addToLog(message, type = 'info') {
-            messageCounter++;
-            
-            const logEntry = document.createElement('div');
-            logEntry.className = `log-entry log-${type}`;
-            
-            const timestamp = new Date().toLocaleTimeString();
-            
-            let content = `<strong>[${timestamp}] #${messageCounter}</strong>: `;
-            
-            // Si el mensaje es un objeto JSON, formatearlo
-            if (typeof message === 'string' && message.trim().startsWith('{') && message.trim().endsWith('}')) {
+        
+        // Función para enviar una solicitud
+        function sendRequest(resource, action, data) {
+            return new Promise((resolve, reject) => {
+                if (!isConnected) {
+                    reject(new Error('No hay conexión WebSocket'));
+                    return;
+                }
+                
+                // Generar ID único para la solicitud
+                const requestId = `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                
+                // Crear mensaje
+                const message = {
+                    type: 'request',
+                    id: requestId,
+                    resource,
+                    payload: {
+                        action,
+                        ...data
+                    }
+                };
+                
+                // Registrar solicitud pendiente
+                pendingRequests[requestId] = { resolve, reject };
+                
+                // Enviar mensaje
                 try {
-                    const jsonObj = JSON.parse(message);
-                    content += `<pre>${JSON.stringify(jsonObj, null, 2)}</pre>`;
-                } catch (e) {
-                    content += message;
-                }
-            } else {
-                content += message;
-            }
-            
-            logEntry.innerHTML = content;
-            logDiv.appendChild(logEntry);
-            
-            // Scroll al final
-            logDiv.scrollTop = logDiv.scrollHeight;
-        }
-
-        function clearLog() {
-            logDiv.innerHTML = '';
-            messageCounter = 0;
-            addToLog('Log limpiado', 'info');
-        }
-
-        // Funciones para actualizar parámetros según la acción seleccionada
-        function updateConversationParams() {
-            const action = document.getElementById('conversationAction').value;
-            
-            // Ocultar todos los parámetros
-            document.querySelectorAll('.conversation-param').forEach(param => {
-                param.style.display = 'none';
-            });
-            
-            // Mostrar parámetros según la acción
-            if (action === 'get_all') {
-                document.getElementById('conversation-user-id-group').style.display = 'block';
-            } else if (action === 'get' || action === 'update' || action === 'delete') {
-                document.getElementById('conversation-id-group').style.display = 'block';
-            } else if (action === 'create') {
-                document.getElementById('conversation-title-group').style.display = 'block';
-                document.getElementById('conversation-user-id-group').style.display = 'block';
-            }
-        }
-
-        function updateMessageParams() {
-            const action = document.getElementById('messageAction').value;
-            
-            // Ocultar todos los parámetros
-            document.querySelectorAll('.message-param').forEach(param => {
-                param.style.display = 'none';
-            });
-            
-            // Mostrar parámetros según la acción
-            if (action === 'get_by_conversation') {
-                document.getElementById('message-conversation-id-group').style.display = 'block';
-            } else if (action === 'get' || action === 'update' || action === 'delete') {
-                document.getElementById('message-id-group').style.display = 'block';
-            } else if (action === 'create') {
-                document.getElementById('message-conversation-id-group').style.display = 'block';
-                document.getElementById('message-content-group').style.display = 'block';
-                document.getElementById('message-sender-id-group').style.display = 'block';
-            }
-        }
-
-        function updateUserParams() {
-            const action = document.getElementById('userAction').value;
-            
-            // Ocultar todos los parámetros
-            document.querySelectorAll('.user-param').forEach(param => {
-                param.style.display = 'none';
-            });
-            
-            // Mostrar parámetros según la acción
-            if (action === 'get' || action === 'update' || action === 'delete') {
-                document.getElementById('user-id-group').style.display = 'block';
-            } else if (action === 'create') {
-                document.getElementById('user-name-group').style.display = 'block';
-                document.getElementById('user-email-group').style.display = 'block';
-            }
-        }
-
-        // Funciones para enviar solicitudes
-        function sendConversationRequest() {
-            if (!connected || !socket) {
-                addToLog('No hay conexión activa', 'error');
-                return;
-            }
-            
-            const action = document.getElementById('conversationAction').value;
-            let payload = { action };
-            
-            // Añadir parámetros según la acción
-            if (action === 'get_all') {
-                const userId = document.getElementById('conversationUserId').value.trim();
-                if (userId) payload.user_id = userId;
-            } else if (action === 'get' || action === 'update' || action === 'delete') {
-                const conversationId = document.getElementById('conversationId').value.trim();
-                if (!conversationId) {
-                    addToLog('ID de conversación requerido', 'error');
-                    return;
-                }
-                payload.conversation_id = conversationId;
-            } else if (action === 'create') {
-                const title = document.getElementById('conversationTitle').value.trim();
-                const userId = document.getElementById('conversationUserId').value.trim();
-                if (!title) {
-                    addToLog('Título requerido', 'error');
-                    return;
-                }
-                payload.conversation = {
-                    title,
-                    created_by: userId || clientId || 'browser_user'
-                };
-            }
-            
-            sendRequest('conversations', payload);
-        }
-
-        function sendMessageRequest() {
-            if (!connected || !socket) {
-                addToLog('No hay conexión activa', 'error');
-                return;
-            }
-            
-            const action = document.getElementById('messageAction').value;
-            let payload = { action };
-            
-            // Añadir parámetros según la acción
-            if (action === 'get_by_conversation') {
-                const conversationId = document.getElementById('messageConversationId').value.trim();
-                if (!conversationId) {
-                    addToLog('ID de conversación requerido', 'error');
-                    return;
-                }
-                payload.conversation_id = conversationId;
-            } else if (action === 'get' || action === 'update' || action === 'delete') {
-                const messageId = document.getElementById('messageId').value.trim();
-                if (!messageId) {
-                    addToLog('ID de mensaje requerido', 'error');
-                    return;
-                }
-                payload.message_id = messageId;
-            } else if (action === 'create') {
-                const conversationId = document.getElementById('messageConversationId').value.trim();
-                const content = document.getElementById('messageContent').value.trim();
-                const senderId = document.getElementById('messageSenderId').value.trim();
-                
-                if (!conversationId) {
-                    addToLog('ID de conversación requerido', 'error');
-                    return;
-                }
-                if (!content) {
-                    addToLog('Contenido requerido', 'error');
-                    return;
-                }
-                
-                payload.message = {
-                    conversation_id: conversationId,
-                    content,
-                    sender_id: senderId || clientId || 'browser_user'
-                };
-            }
-            
-            sendRequest('messages', payload);
-        }
-
-        function sendUserRequest() {
-            if (!connected || !socket) {
-                addToLog('No hay conexión activa', 'error');
-                return;
-            }
-            
-            const action = document.getElementById('userAction').value;
-            let payload = { action };
-            
-            // Añadir parámetros según la acción
-            if (action === 'get' || action === 'update' || action === 'delete') {
-                const userId = document.getElementById('userId').value.trim();
-                if (!userId) {
-                    addToLog('ID de usuario requerido', 'error');
-                    return;
-                }
-                payload.user_id = userId;
-            } else if (action === 'create') {
-                const name = document.getElementById('userName').value.trim();
-                const email = document.getElementById('userEmail').value.trim();
-                
-                if (!name) {
-                    addToLog('Nombre requerido', 'error');
-                    return;
-                }
-                
-                payload.user = {
-                    name,
-                    email: email || null
-                };
-            }
-            
-            sendRequest('users', payload);
-        }
-
-        function sendCustomRequest() {
-            if (!connected || !socket) {
-                addToLog('No hay conexión activa', 'error');
-                return;
-            }
-            
-            const resource = document.getElementById('customResource').value.trim();
-            const action = document.getElementById('customAction').value.trim();
-            const payloadStr = document.getElementById('customPayload').value.trim();
-            
-            if (!resource) {
-                addToLog('Recurso requerido', 'error');
-                return;
-            }
-            
-            if (!action) {
-                addToLog('Acción requerida', 'error');
-                return;
-            }
-            
-            let payload = { action };
-            
-            // Añadir payload personalizado si existe
-            if (payloadStr) {
-                try {
-                    const customPayload = JSON.parse(payloadStr);
-                    payload = { ...payload, ...customPayload };
+                    socket.send(JSON.stringify(message));
+                    addLog(message, 'request');
                 } catch (error) {
-                    addToLog(`Error al parsear payload JSON: ${error.message}`, 'error');
-                    return;
+                    delete pendingRequests[requestId];
+                    reject(error);
+                    addLog(`Error al enviar mensaje: ${error.message}`, 'error');
                 }
-            }
-            
-            sendRequest(resource, payload);
+            });
         }
-
-        // Función genérica para enviar solicitudes
-        function sendRequest(resource, payload) {
-            if (!connected || !socket) {
-                addToLog('No hay conexión activa', 'error');
-                return;
-            }
-            
-            // Crear mensaje de solicitud
-            const requestId = 'req-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
-            const request = {
-                type: 'request',
-                id: requestId,
-                resource,
-                payload
-            };
+        
+        // Función para enviar solicitud de conversación
+        function sendConversationRequest() {
+            const action = conversationAction.value;
+            let data;
             
             try {
-                // Enviar solicitud
-                socket.send(JSON.stringify(request));
-                addToLog(`Solicitud enviada: ${JSON.stringify(request, null, 2)}`, 'info');
+                data = JSON.parse(conversationData.value);
             } catch (error) {
-                addToLog(`Error al enviar solicitud: ${error.message}`, 'error');
+                addLog(`Error al parsear JSON: ${error.message}`, 'error');
+                return;
             }
+            
+            sendRequest('conversations', action, data)
+                .catch(error => {
+                    addLog(`Error en solicitud: ${error.message}`, 'error');
+                });
         }
+        
+        // Función para enviar solicitud de mensaje
+        function sendMessageRequest() {
+            const action = messageAction.value;
+            let data;
+            
+            try {
+                data = JSON.parse(messageData.value);
+            } catch (error) {
+                addLog(`Error al parsear JSON: ${error.message}`, 'error');
+                return;
+            }
+            
+            sendRequest('messages', action, data)
+                .catch(error => {
+                    addLog(`Error en solicitud: ${error.message}`, 'error');
+                });
+        }
+        
+        // Función para enviar solicitud de usuario
+        function sendUserRequest() {
+            const action = userAction.value;
+            let data;
+            
+            try {
+                data = JSON.parse(userData.value);
+            } catch (error) {
+                addLog(`Error al parsear JSON: ${error.message}`, 'error');
+                return;
+            }
+            
+            sendRequest('users', action, data)
+                .catch(error => {
+                    addLog(`Error en solicitud: ${error.message}`, 'error');
+                });
+        }
+        
+        // Función para limpiar logs
+        function clearLogs() {
+            logsContainer.innerHTML = '';
+        }
+        
+        // Configurar event listeners
+        connectBtn.addEventListener('click', connect);
+        disconnectBtn.addEventListener('click', disconnect);
+        clearLogsBtn.addEventListener('click', clearLogs);
+        
+        sendConversationBtn.addEventListener('click', sendConversationRequest);
+        sendMessageBtn.addEventListener('click', sendMessageRequest);
+        sendUserBtn.addEventListener('click', sendUserRequest);
+        
+        // Actualizar datos de ejemplo al cambiar la acción
+        conversationAction.addEventListener('change', () => {
+            const action = conversationAction.value;
+            let data = {};
+            
+            switch (action) {
+                case 'get_all':
+                    data = { "user_id": "test_user" };
+                    break;
+                case 'get_by_id':
+                    data = { "conversation_id": "test_conversation" };
+                    break;
+                case 'create':
+                    data = {
+                        "title": "Nueva conversación",
+                        "user_id": "test_user",
+                        "description": "Conversación de prueba"
+                    };
+                    break;
+                case 'update':
+                    data = {
+                        "conversation_id": "test_conversation",
+                        "title": "Conversación actualizada",
+                        "description": "Descripción actualizada"
+                    };
+                    break;
+                case 'delete':
+                    data = { "conversation_id": "test_conversation" };
+                    break;
+            }
+            
+            conversationData.value = JSON.stringify(data, null, 2);
+        });
+        
+        messageAction.addEventListener('change', () => {
+            const action = messageAction.value;
+            let data = {};
+            
+            switch (action) {
+                case 'get_by_conversation':
+                    data = { "conversation_id": "test_conversation" };
+                    break;
+                case 'get_by_id':
+                    data = {
+                        "message_id": "test_message",
+                        "conversation_id": "test_conversation"
+                    };
+                    break;
+                case 'create':
+                    data = {
+                        "message": {
+                            "conversation_id": "test_conversation",
+                            "content": "Mensaje de prueba",
+                            "role": "user"
+                        }
+                    };
+                    break;
+                case 'update':
+                    data = {
+                        "message_id": "test_message",
+                        "conversation_id": "test_conversation"
+                    };
+                    break;
+                case 'delete':
+                    data = {
+                        "message_id": "test_message",
+                        "conversation_id": "test_conversation"
+                    };
+                    break;
+            }
+            
+            messageData.value = JSON.stringify(data, null, 2);
+        });
+        
+        userAction.addEventListener('change', () => {
+            const action = userAction.value;
+            let data = {};
+            
+            switch (action) {
+                case 'get_all':
+                    data = {};
+                    break;
+                case 'get_by_id':
+                    data = { "user_id": "test_user" };
+                    break;
+                case 'create':
+                    data = {
+                        "name": "Usuario de prueba",
+                        "email": "test@example.com",
+                        "role": "user"
+                    };
+                    break;
+                case 'update':
+                    data = {
+                        "user_id": "test_user",
+                        "name": "Usuario actualizado",
+                        "email": "updated@example.com"
+                    };
+                    break;
+                case 'delete':
+                    data = { "user_id": "test_user" };
+                    break;
+            }
+            
+            userData.value = JSON.stringify(data, null, 2);
+        });
+        
+        // Inicializar datos de ejemplo
+        conversationAction.dispatchEvent(new Event('change'));
+        messageAction.dispatchEvent(new Event('change'));
+        userAction.dispatchEvent(new Event('change'));
+        
+        // Mensaje inicial
+        addLog('Interfaz de prueba WebSocket inicializada');
     </script>
 </body>
 </html>

@@ -42,8 +42,9 @@ class RemoteWebSocketTester:
         self.secure = secure
         self.protocol = "wss" if secure else "ws"
         self.ws_url = f"{self.protocol}://{self.base_url}/ws"
-        if self.token:
-            self.ws_url += f"?token={self.token}"
+        # Comentamos esta parte para probar sin token
+        # if self.token and self.token.strip() and self.token.lower() != "none":
+        #     self.ws_url += f"?token={self.token}"
         self.connection = None
         self.connected = False
         self.test_results = []

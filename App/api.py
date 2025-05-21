@@ -28,6 +28,9 @@ from App.Api.users import router as users_router
 # Import webhook handler
 from App.Services.simple_webhook import app as webhook_app
 
+# Import WebSockets integration
+from App.WebSockets.integration import integrate_websockets
+
 # Create FastAPI app
 app = FastAPI(
     title="Chat API",
@@ -54,6 +57,10 @@ app.include_router(users_router, prefix="/api/users", tags=["users"])
 from fastapi.middleware.wsgi import WSGIMiddleware
 app.mount("/webhook", WSGIMiddleware(webhook_app), name="webhook")
 logger.info("Webhook app montada en /webhook")
+
+# Integrate WebSockets
+integrate_websockets(app)
+logger.info("WebSockets integrados correctamente")
 
 @app.get("/")
 async def root():

@@ -1,403 +1,453 @@
 /**
- * Integración del cliente WebSocket en el frontend.
- * 
- * Este archivo muestra cómo integrar el cliente WebSocket en una aplicación
- * frontend basada en React/Next.js, similar a la estructura del proyecto
- * FullStackAgent2025.
+ * Cliente WebSocket para integración con el frontend.
+ * Este archivo puede ser importado en aplicaciones React/Next.js para
+ * establecer una conexión WebSocket con el servidor.
  */
 
-// Clase WebSocketClient para el frontend
-class WebSocketClient {
-  constructor(url, token) {
-    this.url = url;
-    this.token = token;
-    this.socket = null;
-    this.connected = false;
-    this.clientId = null;
-    this.userId = null;
-    
-    // Callbacks
-    this.onConnect = null;
-    this.onDisconnect = null;
-    this.onError = null;
-    this.onMessage = null;
-    
-    // Callbacks específicos por tipo de evento
-    this.eventHandlers = {};
-    
-    // Callbacks para respuestas a mensajes específicos
-    this.responseHandlers = {};
-    
-    // Intentos de reconexión
-    this.reconnectAttempts = 0;
-    this.maxReconnectAttempts = 5;
-    this.reconnectTimeout = null;
-    this.reconnectDelay = 1000; // Comienza con 1 segundo
-  }
-  
-  connect() {
-    // Construir URL con token si está disponible
-    let fullUrl = this.url;
-    if (this.token) {
-      if (fullUrl.includes('?')) {
-        fullUrl += `&token=${this.token}`;
-      } else {
-        fullUrl += `?token=${this.token}`;
-      }
+/**
+ * Crea un cliente WebSocket.
+ * @param {string} token - Token de autenticación JWT.
+ * @param {Object} options - Opciones de configuración.
+ * @param {string} options.url - URL del servidor WebSocket (por defecto: basada en la URL actual).
+ * @param {number} options.reconnectInterval - Intervalo de reconexión en ms (por defecto: 1000).
+ * @param {number} options.maxReconnectAttempts - Número máximo de intentos de reconexión (por defecto: 5).
+ * @param {number} options.reconnectBackoffMultiplier - Multiplicador para backoff exponencial (por defecto: 1.5).
+ * @returns {Object} Cliente WebSocket.
+ */
+export function createWebSocketClient(token, options = {}) {
+  // Opciones por defecto
+  const defaultOptions = {
+    url: getDefaultWebSocketUrl(),
+    reconnectInterval: 1000,
+    maxReconnectAttempts: 5,
+    reconnectBackoffMultiplier: 1.5
+  };
+
+  // Combinar opciones
+  const config = { ...defaultOptions, ...options };
+
+  // Estado interno
+  let socket = null;
+  let isConnected = false;
+  let reconnectAttempts = 0;
+  let reconnectTimeout = null;
+  let messageQueue = [];
+  let eventListeners = {};
+  let pendingRequests = {};
+
+  // Callbacks personalizables
+  const callbacks = {
+    onConnect: () => {},
+    onDisconnect: () => {},
+    onError: () => {}
+  };
+
+  /**
+   * Obtiene la URL del WebSocket basada en la URL actual.
+   * @returns {string} URL del WebSocket.
+   */
+  function getDefaultWebSocketUrl() {
+    if (typeof window === 'undefined') {
+      return 'ws://localhost:8000/ws';
     }
-    
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.host;
+    return `${protocol}//${host}/ws`;
+  }
+
+  /**
+   * Conecta al servidor WebSocket.
+   */
+  function connect() {
+    if (socket) {
+      return;
+    }
+
     try {
-      console.log(`Conectando a ${fullUrl}`);
-      
+      // Construir URL con token si se proporciona
+      let url = config.url;
+      if (token) {
+        url += (url.includes('?') ? '&' : '?') + `token=${encodeURIComponent(token)}`;
+      }
+
       // Crear conexión WebSocket
-      this.socket = new WebSocket(fullUrl);
-      
-      // Configurar eventos
-      this.socket.onopen = (event) => {
-        this.connected = true;
-        this.reconnectAttempts = 0;
-        console.log('Conexión WebSocket establecida');
-      };
-      
-      this.socket.onmessage = (event) => {
-        try {
-          const message = JSON.parse(event.data);
-          this._handleMessage(message);
-        } catch (error) {
-          console.error('Error al procesar mensaje:', error);
-        }
-      };
-      
-      this.socket.onclose = (event) => {
-        this.connected = false;
-        console.log(`Conexión WebSocket cerrada: ${event.code} ${event.reason}`);
-        
-        // Notificar desconexión
-        if (this.onDisconnect) {
-          this.onDisconnect({
-            code: event.code,
-            reason: event.reason,
-            timestamp: new Date().toISOString()
-          });
-        }
-        
-        // Intentar reconectar si no fue un cierre limpio
-        if (event.code !== 1000 && event.code !== 1001) {
-          this._scheduleReconnect();
-        }
-      };
-      
-      this.socket.onerror = (error) => {
-        console.error('Error en WebSocket:', error);
-        
-        if (this.onError) {
-          this.onError({
-            code: 'connection_error',
-            message: 'Error en la conexión WebSocket'
-          });
-        }
-      };
+      socket = new WebSocket(url);
+
+      // Configurar manejadores de eventos
+      socket.onopen = handleOpen;
+      socket.onclose = handleClose;
+      socket.onmessage = handleMessage;
+      socket.onerror = handleError;
+
+      console.log(`Conectando a ${url}...`);
     } catch (error) {
-      console.error('Error al conectar:', error);
-      
-      if (this.onError) {
-        this.onError({
-          code: 'connection_error',
-          message: `Error al conectar: ${error.message}`
-        });
-      }
+      console.error('Error al crear conexión WebSocket:', error);
+      scheduleReconnect();
     }
   }
-  
-  disconnect() {
-    if (!this.connected || !this.socket) {
-      return;
+
+  /**
+   * Maneja el evento de apertura de conexión.
+   */
+  function handleOpen() {
+    console.log('Conexión WebSocket establecida');
+    isConnected = true;
+    reconnectAttempts = 0;
+
+    // Procesar mensajes en cola
+    while (messageQueue.length > 0) {
+      const message = messageQueue.shift();
+      sendRaw(message);
     }
-    
+
+    // Notificar conexión
+    callbacks.onConnect({
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  /**
+   * Maneja el evento de cierre de conexión.
+   * @param {Event} event - Evento de cierre.
+   */
+  function handleClose(event) {
+    console.log(`Conexión WebSocket cerrada: ${event.code} - ${event.reason}`);
+    isConnected = false;
+    socket = null;
+
+    // Notificar desconexión
+    callbacks.onDisconnect({
+      code: event.code,
+      reason: event.reason,
+      timestamp: new Date().toISOString()
+    });
+
+    // Rechazar todas las solicitudes pendientes
+    Object.keys(pendingRequests).forEach(id => {
+      const { reject } = pendingRequests[id];
+      reject(new Error('Conexión cerrada'));
+      delete pendingRequests[id];
+    });
+
+    // Intentar reconectar
+    scheduleReconnect();
+  }
+
+  /**
+   * Maneja el evento de mensaje recibido.
+   * @param {MessageEvent} event - Evento de mensaje.
+   */
+  function handleMessage(event) {
     try {
-      // Cancelar cualquier intento de reconexión
-      if (this.reconnectTimeout) {
-        clearTimeout(this.reconnectTimeout);
-        this.reconnectTimeout = null;
+      const message = JSON.parse(event.data);
+      console.log('Mensaje recibido:', message);
+
+      // Procesar según el tipo de mensaje
+      switch (message.type) {
+        case 'response':
+          handleResponse(message);
+          break;
+        case 'event':
+          handleEvent(message);
+          break;
+        case 'error':
+          handleErrorMessage(message);
+          break;
+        case 'connected':
+          // Mensaje de bienvenida, ya manejado por onOpen
+          break;
+        case 'heartbeat':
+          // Heartbeat, no requiere acción especial
+          break;
+        default:
+          console.warn('Tipo de mensaje desconocido:', message.type);
       }
-      
-      // Cerrar conexión
-      this.socket.close(1000, 'Cierre normal');
-      this.socket = null;
-      this.connected = false;
-      
-      console.log('Desconectado');
     } catch (error) {
-      console.error('Error al desconectar:', error);
+      console.error('Error al procesar mensaje:', error);
     }
   }
-  
-  _scheduleReconnect() {
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.log('Máximo número de intentos de reconexión alcanzado');
-      return;
+
+  /**
+   * Maneja respuestas a solicitudes.
+   * @param {Object} message - Mensaje de respuesta.
+   */
+  function handleResponse(message) {
+    const requestId = message.id;
+    if (requestId && pendingRequests[requestId]) {
+      const { resolve } = pendingRequests[requestId];
+      resolve(message.payload);
+      delete pendingRequests[requestId];
+    }
+  }
+
+  /**
+   * Maneja eventos.
+   * @param {Object} message - Mensaje de evento.
+   */
+  function handleEvent(message) {
+    const eventType = message.payload?.type;
+    if (eventType && eventListeners[eventType]) {
+      // Notificar a todos los listeners de este tipo de evento
+      eventListeners[eventType].forEach(listener => {
+        try {
+          listener(message.payload.data);
+        } catch (error) {
+          console.error(`Error en listener de evento ${eventType}:`, error);
+        }
+      });
+    }
+  }
+
+  /**
+   * Maneja mensajes de error.
+   * @param {Object} message - Mensaje de error.
+   */
+  function handleErrorMessage(message) {
+    const requestId = message.id;
+    
+    // Si es respuesta a una solicitud específica
+    if (requestId && pendingRequests[requestId]) {
+      const { reject } = pendingRequests[requestId];
+      reject(new Error(message.payload.message || 'Error desconocido'));
+      delete pendingRequests[requestId];
     }
     
-    // Incrementar contador y delay (backoff exponencial)
-    this.reconnectAttempts++;
-    const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
+    // Notificar error general
+    callbacks.onError({
+      code: message.payload.code,
+      message: message.payload.message,
+      details: message.payload.details,
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  /**
+   * Maneja errores de conexión.
+   * @param {Event} event - Evento de error.
+   */
+  function handleError(event) {
+    console.error('Error en conexión WebSocket:', event);
     
-    console.log(`Intentando reconectar en ${delay}ms (intento ${this.reconnectAttempts})`);
+    // Notificar error
+    callbacks.onError({
+      message: 'Error de conexión WebSocket',
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  /**
+   * Programa un intento de reconexión.
+   */
+  function scheduleReconnect() {
+    // Limpiar timeout anterior si existe
+    if (reconnectTimeout) {
+      clearTimeout(reconnectTimeout);
+    }
+
+    // Verificar si se alcanzó el límite de intentos
+    if (reconnectAttempts >= config.maxReconnectAttempts) {
+      console.error(`Máximo número de intentos de reconexión (${config.maxReconnectAttempts}) alcanzado`);
+      return;
+    }
+
+    // Calcular tiempo de espera con backoff exponencial
+    const delay = config.reconnectInterval * Math.pow(config.reconnectBackoffMultiplier, reconnectAttempts);
     
-    this.reconnectTimeout = setTimeout(() => {
-      this.connect();
+    console.log(`Intentando reconectar en ${delay}ms (intento ${reconnectAttempts + 1}/${config.maxReconnectAttempts})`);
+    
+    // Programar reconexión
+    reconnectTimeout = setTimeout(() => {
+      reconnectAttempts++;
+      connect();
     }, delay);
   }
-  
-  send(resource, action, data, callback) {
-    if (!this.connected || !this.socket) {
-      throw new Error('No conectado al servidor');
+
+  /**
+   * Envía un mensaje raw al servidor.
+   * @param {Object} message - Mensaje a enviar.
+   * @returns {boolean} true si se envió, false si se encoló.
+   */
+  function sendRaw(message) {
+    if (!isConnected) {
+      messageQueue.push(message);
+      return false;
     }
-    
-    // Generar ID único para el mensaje
-    const messageId = crypto.randomUUID ? crypto.randomUUID() : `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    
-    // Construir mensaje
-    const message = {
-      type: 'request',
-      id: messageId,
-      resource: resource,
-      payload: {
-        action: action,
-        ...data
-      }
-    };
-    
-    // Registrar callback para la respuesta si se proporcionó
-    if (callback) {
-      this.responseHandlers[messageId] = callback;
-    }
-    
-    // Enviar mensaje
-    this.socket.send(JSON.stringify(message));
-    console.log('Mensaje enviado:', message);
-    
-    return messageId;
-  }
-  
-  on(eventType, callback) {
-    if (!this.eventHandlers[eventType]) {
-      this.eventHandlers[eventType] = [];
-    }
-    
-    this.eventHandlers[eventType].push(callback);
-  }
-  
-  off(eventType, callback) {
-    if (!this.eventHandlers[eventType]) {
-      return;
-    }
-    
-    if (!callback) {
-      this.eventHandlers[eventType] = [];
-    } else {
-      this.eventHandlers[eventType] = this.eventHandlers[eventType].filter(cb => cb !== callback);
+
+    try {
+      socket.send(JSON.stringify(message));
+      return true;
+    } catch (error) {
+      console.error('Error al enviar mensaje:', error);
+      messageQueue.push(message);
+      return false;
     }
   }
-  
-  _handleMessage(message) {
-    const messageType = message.type;
-    const messageId = message.id;
-    const payload = message.payload || {};
-    
-    // Llamar al callback general si está definido
-    if (this.onMessage) {
-      this.onMessage(message);
-    }
-    
-    // Manejar según tipo de mensaje
-    if (messageType === 'connected') {
-      this.clientId = payload.client_id;
-      this.userId = payload.user_id;
+
+  /**
+   * Envía una solicitud al servidor y espera la respuesta.
+   * @param {string} resource - Recurso solicitado (conversations, messages, users).
+   * @param {string} action - Acción a realizar (get_all, get_by_id, create, update, delete).
+   * @param {Object} data - Datos de la solicitud.
+   * @param {Function} callback - Callback opcional para manejar la respuesta.
+   * @returns {Promise} Promesa que se resuelve con la respuesta.
+   */
+  function send(resource, action, data = {}, callback = null) {
+    return new Promise((resolve, reject) => {
+      // Generar ID único para la solicitud
+      const requestId = `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       
-      if (this.onConnect) {
-        this.onConnect(payload);
-      }
-    } else if (messageType === 'error') {
-      if (this.onError) {
-        this.onError(payload);
-      }
-      
-      // Si hay un callback registrado para este mensaje, llamarlo con el error
-      if (messageId in this.responseHandlers) {
-        const callback = this.responseHandlers[messageId];
-        delete this.responseHandlers[messageId];
-        callback(null, payload);
-      }
-    } else if (messageType === 'response') {
-      // Si hay un callback registrado para este mensaje, llamarlo con la respuesta
-      if (messageId in this.responseHandlers) {
-        const callback = this.responseHandlers[messageId];
-        delete this.responseHandlers[messageId];
-        callback(payload, null);
-      }
-    } else if (messageType === 'event') {
-      const eventType = payload.type;
-      const eventData = payload.data || {};
-      
-      // Llamar a los callbacks registrados para este tipo de evento
-      if (eventType && this.eventHandlers[eventType]) {
-        for (const callback of this.eventHandlers[eventType]) {
-          try {
-            callback(eventData);
-          } catch (error) {
-            console.error(`Error en callback de evento ${eventType}:`, error);
-          }
+      // Crear mensaje
+      const message = {
+        type: 'request',
+        id: requestId,
+        resource,
+        payload: {
+          action,
+          ...data
         }
+      };
+      
+      // Registrar solicitud pendiente
+      pendingRequests[requestId] = { resolve, reject };
+      
+      // Enviar mensaje
+      const sent = sendRaw(message);
+      
+      // Si se proporcionó callback, usarlo también
+      if (callback && typeof callback === 'function') {
+        // Envolver resolve/reject para llamar al callback
+        pendingRequests[requestId] = {
+          resolve: (data) => {
+            resolve(data);
+            callback(data, null);
+          },
+          reject: (error) => {
+            reject(error);
+            callback(null, error);
+          }
+        };
       }
+      
+      // Si no se pudo enviar y no se encoló, rechazar inmediatamente
+      if (!sent && !isConnected && reconnectAttempts >= config.maxReconnectAttempts) {
+        delete pendingRequests[requestId];
+        const error = new Error('No se pudo enviar el mensaje: no hay conexión');
+        if (callback) callback(null, error);
+        reject(error);
+      }
+    });
+  }
+
+  /**
+   * Registra un listener para un tipo de evento.
+   * @param {string} eventType - Tipo de evento.
+   * @param {Function} listener - Función listener.
+   * @returns {Function} Función para eliminar el listener.
+   */
+  function on(eventType, listener) {
+    if (!eventListeners[eventType]) {
+      eventListeners[eventType] = [];
+    }
+    
+    eventListeners[eventType].push(listener);
+    
+    // Devolver función para eliminar el listener
+    return () => {
+      eventListeners[eventType] = eventListeners[eventType].filter(l => l !== listener);
+    };
+  }
+
+  /**
+   * Elimina un listener para un tipo de evento.
+   * @param {string} eventType - Tipo de evento.
+   * @param {Function} listener - Función listener a eliminar.
+   */
+  function off(eventType, listener) {
+    if (eventListeners[eventType]) {
+      eventListeners[eventType] = eventListeners[eventType].filter(l => l !== listener);
     }
   }
+
+  /**
+   * Cierra la conexión WebSocket.
+   */
+  function disconnect() {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.close(1000, 'Cierre normal');
+    }
+    
+    // Limpiar timeout de reconexión
+    if (reconnectTimeout) {
+      clearTimeout(reconnectTimeout);
+      reconnectTimeout = null;
+    }
+    
+    // Limpiar estado
+    isConnected = false;
+    socket = null;
+    reconnectAttempts = 0;
+    messageQueue = [];
+    
+    // Rechazar todas las solicitudes pendientes
+    Object.keys(pendingRequests).forEach(id => {
+      const { reject } = pendingRequests[id];
+      reject(new Error('Conexión cerrada manualmente'));
+      delete pendingRequests[id];
+    });
+  }
+
+  // API pública
+  return {
+    connect,
+    disconnect,
+    send,
+    on,
+    off,
+    
+    // Getters
+    get isConnected() { return isConnected; },
+    
+    // Setters para callbacks
+    set onConnect(callback) { callbacks.onConnect = callback; },
+    set onDisconnect(callback) { callbacks.onDisconnect = callback; },
+    set onError(callback) { callbacks.onError = callback; }
+  };
 }
 
 /**
- * Ejemplo de integración en un contexto React/Next.js
+ * Ejemplo de uso:
+ * 
+ * import { createWebSocketClient } from '../services/websocketService';
+ * 
+ * // Crear cliente
+ * const client = createWebSocketClient('mi-token-jwt');
+ * 
+ * // Conectar
+ * client.connect();
+ * 
+ * // Registrar callbacks
+ * client.onConnect = (data) => {
+ *   console.log('Conectado:', data);
+ * };
+ * 
+ * // Solicitar datos
+ * client.send('conversations', 'get_all', { user_id: 'user123' })
+ *   .then(data => {
+ *     console.log('Conversaciones:', data.conversations);
+ *   })
+ *   .catch(error => {
+ *     console.error('Error:', error);
+ *   });
+ * 
+ * // Suscribirse a eventos
+ * const unsubscribe = client.on('new_message', (message) => {
+ *   console.log('Nuevo mensaje:', message);
+ * });
+ * 
+ * // Más tarde, desuscribirse
+ * unsubscribe();
+ * 
+ * // O desconectar completamente
+ * client.disconnect();
  */
-
-// src/services/websocketService.js
-export const createWebSocketClient = (token) => {
-  // Determinar URL del WebSocket basada en el entorno
-  const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-  const wsProtocol = baseUrl.startsWith('https') ? 'wss' : 'ws';
-  const wsUrl = `${wsProtocol}://${baseUrl.replace(/^https?:\/\//, '')}/ws`;
-  
-  return new WebSocketClient(wsUrl, token);
-};
-
-// src/contexts/WebSocketContext.js
-import React, { createContext, useContext, useEffect, useState } from 'react';
-import { useAuth } from './AuthContext';
-import { createWebSocketClient } from '../services/websocketService';
-
-const WebSocketContext = createContext(null);
-
-export const WebSocketProvider = ({ children }) => {
-  const { token, isAuthenticated } = useAuth();
-  const [client, setClient] = useState(null);
-  const [connected, setConnected] = useState(false);
-  
-  useEffect(() => {
-    let wsClient = null;
-    
-    // Crear y conectar cliente WebSocket cuando el usuario está autenticado
-    if (isAuthenticated && token) {
-      wsClient = createWebSocketClient(token);
-      
-      wsClient.onConnect = (data) => {
-        console.log('WebSocket conectado:', data);
-        setConnected(true);
-      };
-      
-      wsClient.onDisconnect = (data) => {
-        console.log('WebSocket desconectado:', data);
-        setConnected(false);
-      };
-      
-      wsClient.onError = (error) => {
-        console.error('Error en WebSocket:', error);
-      };
-      
-      wsClient.connect();
-      setClient(wsClient);
-    }
-    
-    // Limpiar al desmontar
-    return () => {
-      if (wsClient) {
-        wsClient.disconnect();
-      }
-    };
-  }, [isAuthenticated, token]);
-  
-  return (
-    <WebSocketContext.Provider value={{ client, connected }}>
-      {children}
-    </WebSocketContext.Provider>
-  );
-};
-
-export const useWebSocket = () => useContext(WebSocketContext);
-
-// Ejemplo de uso en un componente
-// src/components/ConversationList.js
-import React, { useEffect, useState } from 'react';
-import { useWebSocket } from '../contexts/WebSocketContext';
-
-const ConversationList = () => {
-  const { client, connected } = useWebSocket();
-  const [conversations, setConversations] = useState([]);
-  const [loading, setLoading] = useState(true);
-  
-  useEffect(() => {
-    // Cargar conversaciones cuando el WebSocket está conectado
-    if (connected && client) {
-      setLoading(true);
-      
-      // Solicitar todas las conversaciones
-      client.send('conversations', 'get_all', { user_id: 'current' }, (data, error) => {
-        setLoading(false);
-        
-        if (error) {
-          console.error('Error al cargar conversaciones:', error);
-          return;
-        }
-        
-        setConversations(data.conversations || []);
-      });
-      
-      // Suscribirse a eventos de conversaciones
-      const handleNewConversation = (conversation) => {
-        setConversations(prev => [...prev, conversation]);
-      };
-      
-      const handleConversationUpdated = (data) => {
-        setConversations(prev => 
-          prev.map(conv => 
-            conv.id === data.conversation_id ? { ...conv, ...data.conversation } : conv
-          )
-        );
-      };
-      
-      const handleConversationDeleted = (data) => {
-        setConversations(prev => 
-          prev.filter(conv => conv.id !== data.conversation_id)
-        );
-      };
-      
-      // Registrar listeners
-      client.on('conversation_created', handleNewConversation);
-      client.on('conversation_updated', handleConversationUpdated);
-      client.on('conversation_deleted', handleConversationDeleted);
-      
-      // Limpiar al desmontar
-      return () => {
-        client.off('conversation_created', handleNewConversation);
-        client.off('conversation_updated', handleConversationUpdated);
-        client.off('conversation_deleted', handleConversationDeleted);
-      };
-    }
-  }, [connected, client]);
-  
-  if (loading) {
-    return <div>Cargando conversaciones...</div>;
-  }
-  
-  return (
-    <div>
-      <h2>Conversaciones</h2>
-      <ul>
-        {conversations.map(conversation => (
-          <li key={conversation.id}>
-            {conversation.title || 'Sin título'}
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-};
-
-export default ConversationList;

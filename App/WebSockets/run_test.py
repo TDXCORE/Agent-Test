@@ -1,18 +1,13 @@
 """
-Script para ejecutar el servidor y cliente de prueba en paralelo.
+Script para probar el servidor WebSocket local.
 """
 
 import asyncio
+import websockets
+import json
 import logging
-import sys
 import os
-import subprocess
-import time
-import signal
-import threading
-
-# Añadir directorio raíz al path para poder importar App
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+from dotenv import load_dotenv
 
 # Configurar logging
 logging.basicConfig(
@@ -21,117 +16,105 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def run_server():
-    """Ejecuta el servidor de prueba."""
-    logger.info("Iniciando servidor de prueba...")
-    
-    # Ejecutar el servidor en un proceso separado
-    server_process = subprocess.Popen(
-        [sys.executable, "-m", "App.WebSockets.test_server"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        bufsize=1
-    )
-    
-    # Leer la salida del servidor en tiempo real
-    def read_output():
-        for line in server_process.stdout:
-            print(f"[SERVER] {line.strip()}")
-    
-    # Leer errores del servidor en tiempo real
-    def read_errors():
-        for line in server_process.stderr:
-            print(f"[SERVER ERROR] {line.strip()}")
-    
-    # Iniciar hilos para leer la salida y errores
-    threading.Thread(target=read_output, daemon=True).start()
-    threading.Thread(target=read_errors, daemon=True).start()
-    
-    return server_process
+# Cargar variables de entorno
+load_dotenv()
 
-def run_client():
-    """Ejecuta el cliente de prueba."""
-    logger.info("Esperando a que el servidor esté listo...")
-    
-    # Esperar a que el servidor esté listo (5 segundos)
-    time.sleep(5)
-    
-    logger.info("Iniciando cliente de prueba...")
-    
-    # Ejecutar el cliente en un proceso separado
-    client_process = subprocess.Popen(
-        [sys.executable, "-m", "App.WebSockets.simple_test"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        bufsize=1
-    )
-    
-    # Leer la salida del cliente en tiempo real
-    def read_output():
-        for line in client_process.stdout:
-            print(f"[CLIENT] {line.strip()}")
-    
-    # Leer errores del cliente en tiempo real
-    def read_errors():
-        for line in client_process.stderr:
-            print(f"[CLIENT ERROR] {line.strip()}")
-    
-    # Iniciar hilos para leer la salida y errores
-    threading.Thread(target=read_output, daemon=True).start()
-    threading.Thread(target=read_errors, daemon=True).start()
-    
-    return client_process
+# Obtener token de WebSocket
+WEBSOCKET_AUTH_TOKEN = os.getenv("WEBSOCKET_AUTH_TOKEN", "ws_auth_token_2025_secure_connection")
 
-def main():
-    """Función principal."""
-    logger.info("Iniciando prueba completa de WebSockets")
+async def test_websocket():
+    """Prueba la conexión al servidor WebSocket local."""
+    # URL del servidor WebSocket local
+    url = f"ws://localhost:8766/ws?token={WEBSOCKET_AUTH_TOKEN}"
+    
+    logger.info(f"Conectando a {url}...")
     
     try:
-        # Iniciar servidor
-        server_process = run_server()
-        
-        # Iniciar cliente
-        client_process = run_client()
-        
-        # Esperar a que el cliente termine
-        client_process.wait()
-        
-        # Verificar resultado del cliente
-        if client_process.returncode == 0:
-            logger.info("Prueba completada exitosamente")
-        else:
-            logger.error(f"Prueba fallida con código de salida {client_process.returncode}")
-        
-        # Terminar servidor
-        logger.info("Terminando servidor...")
-        server_process.send_signal(signal.SIGTERM)
-        server_process.wait(timeout=5)
-    
-    except KeyboardInterrupt:
-        logger.info("Prueba interrumpida por el usuario")
+        # Conectar al WebSocket
+        async with websockets.connect(url) as websocket:
+            logger.info("Conexión establecida")
+            
+            # Esperar mensaje de bienvenida
+            welcome = await websocket.recv()
+            welcome_data = json.loads(welcome)
+            logger.info(f"Mensaje de bienvenida recibido: {welcome_data}")
+            
+            # Enviar solicitud de conversaciones
+            request = {
+                "type": "request",
+                "id": "test-123",
+                "resource": "conversations",
+                "payload": {
+                    "action": "get_all",
+                    "user_id": "test_user"
+                }
+            }
+            logger.info(f"Enviando solicitud: {request}")
+            await websocket.send(json.dumps(request))
+            
+            # Esperar respuesta
+            response = await websocket.recv()
+            response_data = json.loads(response)
+            logger.info(f"Respuesta recibida: {response_data}")
+            
+            # Esperar evento
+            event = await websocket.recv()
+            event_data = json.loads(event)
+            logger.info(f"Evento recibido: {event_data}")
+            
+            # Enviar solicitud de mensajes
+            request = {
+                "type": "request",
+                "id": "test-456",
+                "resource": "messages",
+                "payload": {
+                    "action": "get_by_conversation",
+                    "conversation_id": "conv-1"
+                }
+            }
+            logger.info(f"Enviando solicitud: {request}")
+            await websocket.send(json.dumps(request))
+            
+            # Esperar respuesta
+            response = await websocket.recv()
+            response_data = json.loads(response)
+            logger.info(f"Respuesta recibida: {response_data}")
+            
+            # Esperar evento
+            event = await websocket.recv()
+            event_data = json.loads(event)
+            logger.info(f"Evento recibido: {event_data}")
+            
+            # Enviar solicitud de usuarios
+            request = {
+                "type": "request",
+                "id": "test-789",
+                "resource": "users",
+                "payload": {
+                    "action": "get_all"
+                }
+            }
+            logger.info(f"Enviando solicitud: {request}")
+            await websocket.send(json.dumps(request))
+            
+            # Esperar respuesta
+            response = await websocket.recv()
+            response_data = json.loads(response)
+            logger.info(f"Respuesta recibida: {response_data}")
+            
+            # Esperar evento
+            event = await websocket.recv()
+            event_data = json.loads(event)
+            logger.info(f"Evento recibido: {event_data}")
+            
+            logger.info("Pruebas completadas exitosamente")
     
     except Exception as e:
-        logger.error(f"Error durante la prueba: {str(e)}")
-    
-    finally:
-        # Asegurar que todos los procesos terminen
-        try:
-            if 'server_process' in locals() and server_process.poll() is None:
-                server_process.terminate()
-                server_process.wait(timeout=2)
-        except:
-            pass
-        
-        try:
-            if 'client_process' in locals() and client_process.poll() is None:
-                client_process.terminate()
-                client_process.wait(timeout=2)
-        except:
-            pass
-    
-    logger.info("Prueba finalizada")
+        logger.error(f"Error: {str(e)}")
+
+async def main():
+    """Función principal."""
+    await test_websocket()
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

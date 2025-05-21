@@ -5,31 +5,23 @@ Integración del módulo WebSockets con la aplicación principal.
 import logging
 from fastapi import FastAPI, Depends, HTTPException
 from typing import Dict, Any, Optional, List
-
-from App.api import app
 from App.DB.db_operations import (
-    get_conversations_by_user,
-    get_conversation_by_id,
-    create_conversation,
-    update_conversation,
-    delete_conversation,
-    get_messages_by_conversation,
-    get_message_by_id,
-    create_message,
-    update_message,
-    delete_message,
-    get_all_users,
     get_user_by_id,
     create_user,
     update_user,
-    delete_user
+    get_active_conversation,
+    create_conversation,
+    close_conversation,
+    get_conversation_messages,
+    add_message,
+    get_conversation_history
 )
 
 from .main import init_websockets, notify_event
 
 logger = logging.getLogger(__name__)
 
-def integrate_websockets():
+def integrate_websockets(app: FastAPI):
     """
     Integra el módulo WebSockets con la aplicación principal.
     
@@ -40,11 +32,11 @@ def integrate_websockets():
     init_websockets(app)
     
     # Registrar middleware para notificar eventos desde las APIs REST
-    register_event_middleware()
+    register_event_middleware(app)
     
     logger.info("Módulo WebSockets integrado con la aplicación principal")
 
-def register_event_middleware():
+def register_event_middleware(app: FastAPI):
     """
     Registra middleware para notificar eventos desde las APIs REST.
     
@@ -137,11 +129,11 @@ def register_event_middleware():
                         })
                 
                 elif method == "DELETE" and message_id and response.status_code == 200:
-                    # Obtener mensaje antes de eliminarlo para conocer su conversation_id
-                    message = await get_message_by_id(message_id)
-                    if message and "conversation_id" in message:
+                    # Para el caso de eliminación, obtener el conversation_id de la URL
+                    conversation_id = request.query_params.get("conversation_id")
+                    if conversation_id:
                         await notify_event("message_deleted", {
-                            "conversation_id": message["conversation_id"],
+                            "conversation_id": conversation_id,
                             "message_id": message_id
                         })
             
@@ -205,7 +197,7 @@ app = FastAPI()
 # Configurar rutas y dependencias...
 
 # Integrar WebSockets
-integrate_websockets()
+integrate_websockets(app)
 
 if __name__ == "__main__":
     import uvicorn
