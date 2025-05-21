@@ -12,6 +12,19 @@ supabase = get_supabase_client()
 
 # ----- OPERACIONES DE USUARIOS -----
 
+def get_all_users_from_db() -> List[Dict]:
+    """
+    Obtiene todos los usuarios de la base de datos.
+    
+    Returns:
+        Lista de usuarios
+    """
+    response = supabase.table("users").select(
+        "id, full_name, phone, email, company, created_at"
+    ).execute()
+    
+    return response.data if response.data else []
+
 def get_user_by_phone(phone: str) -> Optional[Dict]:
     """
     Obtiene un usuario por su número de teléfono.

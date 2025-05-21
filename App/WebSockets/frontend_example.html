@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ejemplo de WebSocket Frontend</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        h1 {
+            color: #333;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 10px;
+        }
+        .container {
+            display: flex;
+            gap: 20px;
+        }
+        .panel {
+            flex: 1;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 15px;
+            background-color: #f9f9f9;
+        }
+        .log-panel {
+            height: 400px;
+            overflow-y: auto;
+            background-color: #f5f5f5;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 10px;
+            font-family: monospace;
+            margin-bottom: 20px;
+        }
+        .log-entry {
+            margin-bottom: 5px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 5px;
+        }
+        .log-entry.error {
+            color: #d9534f;
+        }
+        .log-entry.success {
+            color: #5cb85c;
+        }
+        .log-entry.info {
+            color: #5bc0de;
+        }
+        .log-entry.warning {
+            color: #f0ad4e;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px 0;
+            display: block;
+            width: 100%;
+        }
+        button:hover {
+            background-color: #0069d9;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        input, select {
+            width: 100%;
+            padding: 8px;
+            margin: 5px 0 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        label {
+            font-weight: bold;
+            display: block;
+            margin-top: 10px;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            font-weight: bold;
+            text-align: center;
+        }
+        .status.connected {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .status.disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .status.connecting {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        .conversation {
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 10px;
+            margin-bottom: 10px;
+            cursor: pointer;
+        }
+        .conversation:hover {
+            background-color: #f0f0f0;
+        }
+        .conversation.selected {
+            background-color: #e2f0ff;
+            border-color: #007bff;
+        }
+        .message {
+            margin-bottom: 10px;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .message.user {
+            background-color: #e2f0ff;
+            margin-left: 20px;
+        }
+        .message.assistant {
+            background-color: #f0f0f0;
+            margin-right: 20px;
+        }
+        .message-meta {
+            font-size: 0.8em;
+            color: #666;
+            margin-top: 5px;
+        }
+        .clear-log {
+            background-color: #6c757d;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Ejemplo de WebSocket Frontend</h1>
+    
+    <div class="status disconnected" id="connection-status">Desconectado</div>
+    
+    <div class="container">
+        <div class="panel">
+            <h2>Conexión</h2>
+            <label for="server-url">URL del Servidor:</label>
+            <input type="text" id="server-url" value="wss://waagentv1.onrender.com" />
+            
+            <label for="auth-token">Token de Autenticación (opcional):</label>
+            <input type="text" id="auth-token" placeholder="JWT Token" />
+            
+            <button id="connect-btn">Conectar</button>
+            <button id="disconnect-btn" disabled>Desconectar</button>
+            
+            <h2>Acciones</h2>
+            <label for="user-id">ID de Usuario:</label>
+            <input type="text" id="user-id" placeholder="ID del usuario" value="test-user-123" />
+            
+            <button id="get-conversations-btn" disabled>Obtener Conversaciones</button>
+            
+            <label for="conversation-title">Título de Nueva Conversación:</label>
+            <input type="text" id="conversation-title" placeholder="Título" value="Nueva Conversación" />
+            
+            <button id="create-conversation-btn" disabled>Crear Conversación</button>
+            
+            <div id="conversation-list">
+                <!-- Las conversaciones se mostrarán aquí -->
+            </div>
+            
+            <div id="selected-conversation" style="display: none;">
+                <h3 id="selected-conversation-title">Conversación</h3>
+                
+                <div id="messages-container">
+                    <!-- Los mensajes se mostrarán aquí -->
+                </div>
+                
+                <label for="message-content">Mensaje:</label>
+                <input type="text" id="message-content" placeholder="Escribe un mensaje..." />
+                
+                <button id="send-message-btn">Enviar Mensaje</button>
+            </div>
+        </div>
+        
+        <div class="panel">
+            <h2>Registro de Eventos</h2>
+            <button class="clear-log" id="clear-log-btn">Limpiar Registro</button>
+            <div class="log-panel" id="log-panel">
+                <!-- Los logs se mostrarán aquí -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Cargar el cliente WebSocket -->
+    <script src="frontend_integration_example.js"></script>
+    
+    <script>
+        // Variables globales
+        let client = null;
+        let selectedConversationId = null;
+        
+        // Elementos DOM
+        const connectBtn = document.getElementById('connect-btn');
+        const disconnectBtn = document.getElementById('disconnect-btn');
+        const getConversationsBtn = document.getElementById('get-conversations-btn');
+        const createConversationBtn = document.getElementById('create-conversation-btn');
+        const sendMessageBtn = document.getElementById('send-message-btn');
+        const clearLogBtn = document.getElementById('clear-log-btn');
+        const connectionStatus = document.getElementById('connection-status');
+        const logPanel = document.getElementById('log-panel');
+        const conversationList = document.getElementById('conversation-list');
+        const selectedConversationDiv = document.getElementById('selected-conversation');
+        const selectedConversationTitle = document.getElementById('selected-conversation-title');
+        const messagesContainer = document.getElementById('messages-container');
+        
+        // Función para agregar entradas al log
+        function log(message, type = 'info') {
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logPanel.appendChild(entry);
+            logPanel.scrollTop = logPanel.scrollHeight;
+        }
+        
+        // Función para actualizar el estado de conexión
+        function updateConnectionStatus(status) {
+            connectionStatus.className = `status ${status}`;
+            
+            switch (status) {
+                case 'connected':
+                    connectionStatus.textContent = 'Conectado';
+                    connectBtn.disabled = true;
+                    disconnectBtn.disabled = false;
+                    getConversationsBtn.disabled = false;
+                    createConversationBtn.disabled = false;
+                    break;
+                case 'disconnected':
+                    connectionStatus.textContent = 'Desconectado';
+                    connectBtn.disabled = false;
+                    disconnectBtn.disabled = true;
+                    getConversationsBtn.disabled = true;
+                    createConversationBtn.disabled = true;
+                    break;
+                case 'connecting':
+                    connectionStatus.textContent = 'Conectando...';
+                    connectBtn.disabled = true;
+                    disconnectBtn.disabled = true;
+                    getConversationsBtn.disabled = true;
+                    createConversationBtn.disabled = true;
+                    break;
+            }
+        }
+        
+        // Función para mostrar conversaciones
+        function displayConversations(conversations) {
+            conversationList.innerHTML = '<h3>Conversaciones</h3>';
+            
+            if (!conversations || conversations.length === 0) {
+                const noConvMsg = document.createElement('p');
+                noConvMsg.textContent = 'No hay conversaciones disponibles';
+                conversationList.appendChild(noConvMsg);
+                return;
+            }
+            
+            conversations.forEach(conversation => {
+                const convDiv = document.createElement('div');
+                convDiv.className = 'conversation';
+                if (conversation.id === selectedConversationId) {
+                    convDiv.className += ' selected';
+                }
+                
+                convDiv.innerHTML = `
+                    <strong>${conversation.title || 'Sin título'}</strong>
+                    <div>ID: ${conversation.id}</div>
+                    <div>Creada: ${new Date(conversation.created_at).toLocaleString()}</div>
+                `;
+                
+                convDiv.addEventListener('click', () => selectConversation(conversation));
+                
+                conversationList.appendChild(convDiv);
+            });
+        }
+        
+        // Función para seleccionar una conversación
+        function selectConversation(conversation) {
+            selectedConversationId = conversation.id;
+            selectedConversationTitle.textContent = conversation.title || 'Conversación sin título';
+            selectedConversationDiv.style.display = 'block';
+            
+            // Actualizar la selección visual
+            document.querySelectorAll('.conversation').forEach(div => {
+                div.classList.remove('selected');
+            });
+            
+            document.querySelectorAll('.conversation').forEach(div => {
+                if (div.textContent.includes(conversation.id)) {
+                    div.classList.add('selected');
+                }
+            });
+            
+            // Cargar mensajes de la conversación
+            loadMessages(conversation.id);
+        }
+        
+        // Función para cargar mensajes
+        function loadMessages(conversationId) {
+            messagesContainer.innerHTML = '<p>Cargando mensajes...</p>';
+            
+            client.getMessages(conversationId)
+                .then(result => {
+                    displayMessages(result.messages || []);
+                })
+                .catch(error => {
+                    log(`Error al cargar mensajes: ${error.message}`, 'error');
+                    messagesContainer.innerHTML = '<p>Error al cargar mensajes</p>';
+                });
+        }
+        
+        // Función para mostrar mensajes
+        function displayMessages(messages) {
+            messagesContainer.innerHTML = '';
+            
+            if (!messages || messages.length === 0) {
+                const noMsgDiv = document.createElement('p');
+                noMsgDiv.textContent = 'No hay mensajes en esta conversación';
+                messagesContainer.appendChild(noMsgDiv);
+                return;
+            }
+            
+            messages.forEach(message => {
+                const msgDiv = document.createElement('div');
+                msgDiv.className = `message ${message.role || 'user'}`;
+                
+                msgDiv.innerHTML = `
+                    <div>${message.content}</div>
+                    <div class="message-meta">
+                        ${message.role || 'user'} - ${new Date(message.created_at).toLocaleString()}
+                    </div>
+                `;
+                
+                messagesContainer.appendChild(msgDiv);
+            });
+            
+            // Scroll al último mensaje
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+        
+        // Evento: Conectar
+        connectBtn.addEventListener('click', () => {
+            const serverUrl = document.getElementById('server-url').value.trim();
+            const authToken = document.getElementById('auth-token').value.trim();
+            
+            if (!serverUrl) {
+                log('URL del servidor es requerida', 'error');
+                return;
+            }
+            
+            updateConnectionStatus('connecting');
+            log(`Conectando a ${serverUrl}...`);
+            
+            // Crear cliente WebSocket
+            client = new WebSocketClient(serverUrl, authToken || null);
+            
+            // Registrar listeners para eventos
+            client.on('connect', (data) => {
+                log(`Conectado al servidor. ID de cliente: ${data.client_id}`, 'success');
+                updateConnectionStatus('connected');
+            });
+            
+            client.on('disconnect', (data) => {
+                log(`Desconectado del servidor: ${data.code} ${data.reason}`, 'warning');
+                updateConnectionStatus('disconnected');
+            });
+            
+            client.on('error', (data) => {
+                log(`Error en WebSocket: ${JSON.stringify(data)}`, 'error');
+            });
+            
+            client.on('new_message', (data) => {
+                log(`Nuevo mensaje recibido: ${JSON.stringify(data)}`, 'info');
+                if (data.conversation_id === selectedConversationId) {
+                    loadMessages(selectedConversationId);
+                }
+            });
+            
+            client.on('message_deleted', (data) => {
+                log(`Mensaje eliminado: ${JSON.stringify(data)}`, 'info');
+                if (data.conversation_id === selectedConversationId) {
+                    loadMessages(selectedConversationId);
+                }
+            });
+            
+            client.on('conversation_updated', (data) => {
+                log(`Conversación actualizada: ${JSON.stringify(data)}`, 'info');
+                loadConversations();
+            });
+            
+            client.on('heartbeat', (data) => {
+                log(`Heartbeat recibido: ${data.timestamp}`, 'info');
+            });
+            
+            // Conectar al servidor
+            client.connect()
+                .catch(error => {
+                    log(`Error al conectar: ${error.message}`, 'error');
+                    updateConnectionStatus('disconnected');
+                });
+        });
+        
+        // Evento: Desconectar
+        disconnectBtn.addEventListener('click', () => {
+            if (client) {
+                client.disconnect();
+                client = null;
+                selectedConversationId = null;
+                selectedConversationDiv.style.display = 'none';
+                conversationList.innerHTML = '';
+                log('Desconectado manualmente', 'info');
+                updateConnectionStatus('disconnected');
+            }
+        });
+        
+        // Evento: Obtener conversaciones
+        getConversationsBtn.addEventListener('click', () => {
+            loadConversations();
+        });
+        
+        // Función para cargar conversaciones
+        function loadConversations() {
+            const userId = document.getElementById('user-id').value.trim();
+            
+            if (!userId) {
+                log('ID de usuario es requerido', 'error');
+                return;
+            }
+            
+            log(`Obteniendo conversaciones para usuario: ${userId}`);
+            
+            client.getConversations(userId)
+                .then(result => {
+                    log(`Conversaciones obtenidas: ${result.conversations?.length || 0}`, 'success');
+                    displayConversations(result.conversations || []);
+                })
+                .catch(error => {
+                    log(`Error al obtener conversaciones: ${error.message}`, 'error');
+                });
+        }
+        
+        // Evento: Crear conversación
+        createConversationBtn.addEventListener('click', () => {
+            const userId = document.getElementById('user-id').value.trim();
+            const title = document.getElementById('conversation-title').value.trim();
+            
+            if (!userId) {
+                log('ID de usuario es requerido', 'error');
+                return;
+            }
+            
+            if (!title) {
+                log('Título de conversación es requerido', 'error');
+                return;
+            }
+            
+            log(`Creando conversación: ${title}`);
+            
+            client.createConversation({
+                title: title,
+                created_by: userId
+            })
+                .then(result => {
+                    log(`Conversación creada: ${result.conversation.id}`, 'success');
+                    loadConversations();
+                    selectConversation(result.conversation);
+                })
+                .catch(error => {
+                    log(`Error al crear conversación: ${error.message}`, 'error');
+                });
+        });
+        
+        // Evento: Enviar mensaje
+        sendMessageBtn.addEventListener('click', () => {
+            if (!selectedConversationId) {
+                log('Selecciona una conversación primero', 'error');
+                return;
+            }
+            
+            const content = document.getElementById('message-content').value.trim();
+            
+            if (!content) {
+                log('El contenido del mensaje es requerido', 'error');
+                return;
+            }
+            
+            log(`Enviando mensaje a conversación ${selectedConversationId}`);
+            
+            client.sendMessage(selectedConversationId, content)
+                .then(result => {
+                    log(`Mensaje enviado: ${result.message.id}`, 'success');
+                    document.getElementById('message-content').value = '';
+                    loadMessages(selectedConversationId);
+                })
+                .catch(error => {
+                    log(`Error al enviar mensaje: ${error.message}`, 'error');
+                });
+        });
+        
+        // Evento: Limpiar log
+        clearLogBtn.addEventListener('click', () => {
+            logPanel.innerHTML = '';
+            log('Registro limpiado', 'info');
+        });
+        
+        // Inicialización
+        log('Aplicación inicializada', 'info');
+        updateConnectionStatus('disconnected');
+    </script>
+</body>
+</html>

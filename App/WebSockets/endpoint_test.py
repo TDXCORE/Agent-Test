@@ -51,8 +51,14 @@ async def test_endpoint(base_url, endpoint, with_token=True):
         # Usar contexto SSL sin verificación
         ssl_context = create_ssl_context()
         
-        # Intentar conectar
-        async with websockets.connect(url, ssl=ssl_context) as websocket:
+        # Intentar conectar con más detalles de error
+        try:
+            # Aumentar el timeout para dar más tiempo a la conexión
+            websocket = await asyncio.wait_for(
+                websockets.connect(url, ssl=ssl_context),
+                timeout=15.0
+            )
+            
             logger.info(f"✅ Conexión establecida con {url}")
             
             # Enviar un mensaje de prueba
@@ -70,15 +76,37 @@ async def test_endpoint(base_url, endpoint, with_token=True):
             try:
                 response = await asyncio.wait_for(websocket.recv(), timeout=5.0)
                 logger.info(f"Respuesta recibida: {response}")
-                return True, "Conexión exitosa"
+                await websocket.close()
+                return True, "Conexión exitosa con respuesta"
             except asyncio.TimeoutError:
                 logger.warning("Timeout esperando respuesta")
+                await websocket.close()
                 return True, "Conexión establecida pero sin respuesta"
+        
+        except asyncio.TimeoutError:
+            logger.error(f"Timeout al intentar conectar a {url}")
+            return False, "Timeout al conectar"
             
+    except websockets.exceptions.InvalidStatusCode as e:
+        error_msg = f"InvalidStatus: {str(e)}"
+        logger.error(f"Error: {error_msg}")
+        return False, error_msg
+    
+    except websockets.exceptions.InvalidURI as e:
+        error_msg = f"InvalidURI: {str(e)}"
+        logger.error(f"Error: {error_msg}")
+        return False, error_msg
+    
+    except websockets.exceptions.ConnectionClosed as e:
+        error_msg = f"ConnectionClosed: {str(e)}"
+        logger.error(f"Error: {error_msg}")
+        return False, error_msg
+    
     except Exception as e:
         error_msg = f"{type(e).__name__}: {str(e)}"
         logger.error(f"Error: {error_msg}")
         return False, error_msg
+    
     finally:
         logger.info(f"Prueba de {url} completada")
 
@@ -104,6 +132,26 @@ async def main():
     # Probar cada endpoint con y sin token
     results = []
     
+    # Primero probar el endpoint principal con más detalle
+    logger.info("\n=== PRUEBA DETALLADA DEL ENDPOINT PRINCIPAL ===")
+    success, message = await test_endpoint(base_url, "/ws", with_token=True)
+    if success:
+        logger.info(f"✅ ÉXITO - Endpoint principal /ws funciona correctamente")
+        logger.info(f"Detalles: {message}")
+    else:
+        logger.error(f"❌ FALLO - Endpoint principal /ws no funciona")
+        logger.error(f"Detalles: {message}")
+    
+    # Probar también sin token para ver si es un problema de autenticación
+    success_no_token, message_no_token = await test_endpoint(base_url, "/ws", with_token=False)
+    if success_no_token:
+        logger.info(f"✅ ÉXITO - Endpoint principal /ws funciona sin token")
+        logger.info(f"Detalles: {message_no_token}")
+    else:
+        logger.error(f"❌ FALLO - Endpoint principal /ws no funciona sin token")
+        logger.error(f"Detalles: {message_no_token}")
+    
+    # Ahora probar todos los endpoints
     for endpoint in endpoints:
         # Probar con token
         success, message = await test_endpoint(base_url, endpoint, with_token=True)
@@ -123,6 +171,22 @@ async def main():
     # Contar éxitos
     successful_tests = sum(1 for _, success, _ in results if success)
     logger.info(f"Resultado: {successful_tests}/{len(results)} pruebas exitosas")
+    
+    # Recomendaciones basadas en resultados
+    logger.info("\n=== RECOMENDACIONES ===")
+    
+    if successful_tests == 0:
+        logger.info("- Verifica que el servidor WebSocket esté en ejecución")
+        logger.info("- Comprueba la configuración CORS en el servidor")
+        logger.info("- Verifica que el token de autenticación sea válido")
+        logger.info("- Prueba con una conexión local para descartar problemas de red")
+    elif successful_tests < len(results) / 2:
+        logger.info("- Algunos endpoints funcionan, pero otros no")
+        logger.info("- Verifica la configuración de rutas en el servidor")
+        logger.info("- Asegúrate de que todos los endpoints estén correctamente configurados")
+    else:
+        logger.info("- La mayoría de los endpoints funcionan correctamente")
+        logger.info("- Considera estandarizar en un único endpoint (/ws)")
     
     logger.info("Todas las pruebas completadas")
 

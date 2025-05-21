@@ -12,7 +12,8 @@ from App.DB.db_operations import (
     get_user_by_id,
     create_user,
     update_user,
-    get_or_create_user
+    get_or_create_user,
+    get_all_users_from_db
 )
 import asyncio
 from functools import wraps
@@ -42,10 +43,9 @@ class UsersHandler(BaseHandler):
     
     async def get_all_users(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Obtiene todos los usuarios."""
-        # En esta implementación inicial, no tenemos una función para obtener todos los usuarios
-        # Podríamos implementar una búsqueda por criterios
         phone = payload.get("phone")
         email = payload.get("email")
+        get_all = payload.get("get_all", False)
         
         users = []
         
@@ -58,9 +58,9 @@ class UsersHandler(BaseHandler):
             if user:
                 users.append(user)
         else:
-            # Sin criterios de búsqueda, devolvemos una lista vacía
-            # En una implementación completa, se debería consultar todos los usuarios
-            pass
+            # Sin criterios de búsqueda, obtenemos todos los usuarios
+            users = await self.to_async(get_all_users_from_db)()
+            logger.info(f"Obtenidos {len(users)} usuarios de la base de datos")
         
         return {
             "users": users,
