@@ -98,12 +98,25 @@ class ConnectionManager:
     
     async def send_json(self, websocket: WebSocket, message: Dict[str, Any]) -> bool:
         """Envía un mensaje JSON a una conexión específica."""
+        # Verificar si el websocket está en las conexiones activas
+        if websocket not in self.active_connections:
+            logger.warning("Intento de enviar mensaje a una conexión inactiva")
+            return False
+            
         try:
+            # Verificar si el websocket está en estado cerrado
+            if getattr(websocket, "_closed", False):
+                logger.warning("Intento de enviar mensaje a una conexión cerrada")
+                self.disconnect(websocket)
+                return False
+                
             await websocket.send_json(message)
             self.last_activity[websocket] = datetime.now()
             return True
         except Exception as e:
             logger.error(f"Error al enviar mensaje: {str(e)}")
+            # Si hay un error al enviar, desconectar el websocket
+            self.disconnect(websocket)
             return False
     
     async def broadcast(self, message: Dict[str, Any]) -> None:
@@ -111,9 +124,16 @@ class ConnectionManager:
         if not self.active_connections:
             return
         
+        # Crear una copia de las conexiones activas para evitar modificar durante la iteración
+        active_connections = set(self.active_connections)
         failed_connections = []
         
-        for websocket in self.active_connections:
+        for websocket in active_connections:
+            # Verificar si el websocket está en estado cerrado
+            if getattr(websocket, "_closed", False):
+                failed_connections.append(websocket)
+                continue
+                
             try:
                 await websocket.send_json(message)
                 self.last_activity[websocket] = datetime.now()
@@ -123,16 +143,24 @@ class ConnectionManager:
         
         # Limpiar conexiones fallidas
         for websocket in failed_connections:
-            self.disconnect(websocket)
+            if websocket in self.active_connections:  # Verificar nuevamente por si acaso
+                self.disconnect(websocket)
     
     async def broadcast_to_user(self, user_id: str, message: Dict[str, Any]) -> None:
         """Envía un mensaje a todas las conexiones de un usuario."""
         if user_id not in self.connections_by_user:
             return
         
+        # Crear una copia de las conexiones del usuario para evitar modificar durante la iteración
+        user_connections = list(self.connections_by_user[user_id])
         failed_connections = []
         
-        for websocket in self.connections_by_user[user_id]:
+        for websocket in user_connections:
+            # Verificar si el websocket está en estado cerrado
+            if getattr(websocket, "_closed", False):
+                failed_connections.append(websocket)
+                continue
+                
             try:
                 await websocket.send_json(message)
                 self.last_activity[websocket] = datetime.now()
@@ -142,16 +170,24 @@ class ConnectionManager:
         
         # Limpiar conexiones fallidas
         for websocket in failed_connections:
-            self.disconnect(websocket)
+            if websocket in self.active_connections:  # Verificar nuevamente por si acaso
+                self.disconnect(websocket)
     
     async def broadcast_to_conversation(self, conversation_id: str, message: Dict[str, Any]) -> None:
         """Envía un mensaje a todas las conexiones de una conversación."""
         if conversation_id not in self.connections_by_conversation:
             return
         
+        # Crear una copia de las conexiones de la conversación para evitar modificar durante la iteración
+        conversation_connections = list(self.connections_by_conversation[conversation_id])
         failed_connections = []
         
-        for websocket in self.connections_by_conversation[conversation_id]:
+        for websocket in conversation_connections:
+            # Verificar si el websocket está en estado cerrado
+            if getattr(websocket, "_closed", False):
+                failed_connections.append(websocket)
+                continue
+                
             try:
                 await websocket.send_json(message)
                 self.last_activity[websocket] = datetime.now()
@@ -161,7 +197,8 @@ class ConnectionManager:
         
         # Limpiar conexiones fallidas
         for websocket in failed_connections:
-            self.disconnect(websocket)
+            if websocket in self.active_connections:  # Verificar nuevamente por si acaso
+                self.disconnect(websocket)
     
     def get_connection_count(self) -> int:
         """Retorna el número total de conexiones activas."""
