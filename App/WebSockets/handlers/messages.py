@@ -10,7 +10,10 @@ from App.DB.db_operations import (
     get_conversation_messages,
     add_message,
     get_conversation_history,
-    mark_messages_as_read
+    mark_messages_as_read,
+    update_message,
+    delete_message,
+    get_message_by_id
 )
 import asyncio
 from functools import wraps
@@ -67,16 +70,12 @@ class MessagesHandler(BaseHandler):
     async def get_message(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Obtiene un mensaje por su ID."""
         message_id = payload.get("message_id")
-        conversation_id = payload.get("conversation_id")
         
-        if not message_id or not conversation_id:
-            raise ValueError("Se requiere message_id y conversation_id para obtener mensaje")
+        if not message_id:
+            raise ValueError("Se requiere message_id para obtener mensaje")
         
-        # Obtener todos los mensajes de la conversación
-        messages = await self.to_async(get_conversation_messages)(conversation_id)
-        
-        # Buscar el mensaje por ID
-        message = next((m for m in messages if m.get("id") == message_id), None)
+        # Obtener mensaje directamente por ID
+        message = await self.to_async(get_message_by_id)(message_id)
         
         if not message:
             raise ValueError(f"Mensaje no encontrado: {message_id}")
@@ -132,34 +131,75 @@ class MessagesHandler(BaseHandler):
     async def update_message(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Actualiza un mensaje existente."""
         message_id = payload.get("message_id")
+        message_data = payload.get("message")
         conversation_id = payload.get("conversation_id")
+        mark_as_read = payload.get("mark_as_read", False)
         
-        if not message_id or not conversation_id:
-            raise ValueError("Se requiere message_id y conversation_id para actualizar")
+        if not message_id:
+            raise ValueError("Se requiere message_id para actualizar")
         
-        # En esta implementación inicial, solo podemos marcar mensajes como leídos
-        # No hay una función específica para actualizar un mensaje individual
-        count = await self.to_async(mark_messages_as_read)(conversation_id)
+        # Si se solicita marcar como leído toda la conversación
+        if mark_as_read and conversation_id:
+            count = await self.to_async(mark_messages_as_read)(conversation_id)
+            
+            # Notificar a los clientes sobre la actualización
+            await dispatch_event("messages_read", {
+                "conversation_id": conversation_id,
+                "count": count
+            })
+            
+            return {
+                "success": True,
+                "count": count
+            }
         
-        # Notificar a los clientes sobre la actualización
-        await dispatch_event("messages_read", {
-            "conversation_id": conversation_id,
-            "count": count
-        })
+        # Si se proporcionan datos para actualizar un mensaje específico
+        if message_data:
+            updated_message = await self.to_async(update_message)(message_id, message_data)
+            
+            # Obtener conversation_id del mensaje actualizado si no se proporcionó
+            if not conversation_id and updated_message:
+                conversation_id = updated_message.get("conversation_id")
+            
+            # Notificar a los clientes sobre la actualización
+            if conversation_id:
+                await dispatch_event("message_updated", {
+                    "conversation_id": conversation_id,
+                    "message_id": message_id,
+                    "message": updated_message
+                })
+            
+            return {
+                "message": updated_message
+            }
         
-        return {
-            "success": True,
-            "count": count
-        }
+        raise ValueError("Se requieren datos para actualizar el mensaje")
     
     async def delete_message(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Elimina un mensaje."""
         message_id = payload.get("message_id")
         conversation_id = payload.get("conversation_id")
         
-        if not message_id or not conversation_id:
-            raise ValueError("Se requiere message_id y conversation_id para eliminar")
+        if not message_id:
+            raise ValueError("Se requiere message_id para eliminar")
         
-        # En esta implementación inicial, no podemos eliminar mensajes
-        # Devolvemos un error
-        raise ValueError("La eliminación de mensajes no está implementada")
+        # Si no se proporcionó conversation_id, obtener el mensaje primero
+        if not conversation_id:
+            message = await self.to_async(get_message_by_id)(message_id)
+            if message:
+                conversation_id = message.get("conversation_id")
+        
+        # Eliminar el mensaje
+        success = await self.to_async(delete_message)(message_id)
+        
+        if success and conversation_id:
+            # Notificar a los clientes sobre la eliminación
+            await dispatch_event("message_deleted", {
+                "conversation_id": conversation_id,
+                "message_id": message_id
+            })
+        
+        return {
+            "success": success,
+            "message_id": message_id
+        }

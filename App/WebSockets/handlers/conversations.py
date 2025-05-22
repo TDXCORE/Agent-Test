@@ -11,7 +11,9 @@ from App.DB.db_operations import (
     create_conversation,
     close_conversation,
     get_or_create_conversation,
-    get_user_by_id
+    get_user_by_id,
+    get_conversation_by_id,
+    get_user_conversations
 )
 import asyncio
 from functools import wraps
@@ -42,6 +44,7 @@ class ConversationsHandler(BaseHandler):
     async def get_all_conversations(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Obtiene todas las conversaciones de un usuario."""
         user_id = payload.get("user_id")
+        include_closed = payload.get("include_closed", False)
         
         if not user_id:
             raise ValueError("Se requiere user_id para obtener conversaciones")
@@ -51,16 +54,11 @@ class ConversationsHandler(BaseHandler):
         if not user:
             raise ValueError(f"Usuario no encontrado: {user_id}")
         
-        # En esta implementación inicial, solo devolvemos la conversación activa
-        # En una implementación completa, se debería consultar todas las conversaciones del usuario
-        external_id = user.get("phone") or user.get("email")
-        if not external_id:
-            return {"conversations": []}
-        
-        conversation = await self.to_async(get_active_conversation)(external_id)
+        # Obtener todas las conversaciones del usuario
+        conversations = await self.to_async(get_user_conversations)(user_id, include_closed)
         
         return {
-            "conversations": [conversation] if conversation else []
+            "conversations": conversations
         }
     
     async def get_conversation(self, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -74,9 +72,7 @@ class ConversationsHandler(BaseHandler):
         # Obtener conversación de la base de datos
         conversation = None
         if conversation_id:
-            # Aquí deberíamos tener una función para obtener por ID
-            # Como no existe, usamos un enfoque alternativo
-            raise ValueError("Búsqueda por ID no implementada aún")
+            conversation = await self.to_async(get_conversation_by_id)(conversation_id)
         elif external_id:
             conversation = await self.to_async(get_active_conversation)(external_id)
         

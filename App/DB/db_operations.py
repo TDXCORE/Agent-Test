@@ -127,6 +127,28 @@ def get_or_create_user(phone: str, email: Optional[str] = None, full_name: Optio
     
     return user
 
+def delete_user(user_id: str) -> bool:
+    """
+    Elimina un usuario o lo marca como inactivo.
+    
+    En lugar de eliminar físicamente el usuario, lo marcamos como inactivo
+    para mantener la integridad referencial.
+    
+    Args:
+        user_id: ID del usuario
+        
+    Returns:
+        True si se actualizó correctamente, False en caso contrario
+    """
+    # Marcar como inactivo en lugar de eliminar físicamente
+    update_data = {
+        "active": False,
+        "updated_at": "now()"
+    }
+    
+    response = supabase.table("users").update(update_data).eq("id", user_id).execute()
+    return len(response.data) > 0 if response.data else False
+
 # ----- OPERACIONES DE CONVERSACIONES -----
 
 def get_active_conversation(external_id: str, platform: str = "whatsapp") -> Optional[Dict]:
@@ -207,6 +229,38 @@ def get_or_create_conversation(user_id: str, external_id: str, platform: str = "
         conversation = create_conversation(user_id, external_id, platform)
     
     return conversation
+
+def get_conversation_by_id(conversation_id: str) -> Optional[Dict]:
+    """
+    Obtiene una conversación por su ID.
+    
+    Args:
+        conversation_id: ID de la conversación
+        
+    Returns:
+        Datos de la conversación o None si no existe
+    """
+    response = supabase.table("conversations").select("*").eq("id", conversation_id).execute()
+    return response.data[0] if response.data else None
+
+def get_user_conversations(user_id: str, include_closed: bool = False) -> List[Dict]:
+    """
+    Obtiene todas las conversaciones de un usuario.
+    
+    Args:
+        user_id: ID del usuario
+        include_closed: Si es True, incluye conversaciones cerradas
+        
+    Returns:
+        Lista de conversaciones
+    """
+    query = supabase.table("conversations").select("*").eq("user_id", user_id)
+    
+    if not include_closed:
+        query = query.eq("status", "active")
+    
+    response = query.order("created_at", desc=True).execute()
+    return response.data if response.data else []
 
 # ----- OPERACIONES DE MENSAJES -----
 
@@ -722,6 +776,50 @@ def mark_messages_as_read(conversation_id: str) -> int:
     ).eq("conversation_id", conversation_id).eq("read", False).execute()
     
     return len(response.data) if response.data else 0
+
+def update_message(message_id: str, data: Dict) -> Dict:
+    """
+    Actualiza un mensaje existente.
+    
+    Args:
+        message_id: ID del mensaje
+        data: Datos a actualizar
+        
+    Returns:
+        Datos del mensaje actualizado
+    """
+    # Asegurar que updated_at se actualice
+    if "updated_at" not in data:
+        data["updated_at"] = "now()"
+        
+    response = supabase.table("messages").update(data).eq("id", message_id).execute()
+    return response.data[0] if response.data else {}
+
+def delete_message(message_id: str) -> bool:
+    """
+    Elimina un mensaje.
+    
+    Args:
+        message_id: ID del mensaje
+        
+    Returns:
+        True si se eliminó correctamente, False en caso contrario
+    """
+    response = supabase.table("messages").delete().eq("id", message_id).execute()
+    return len(response.data) > 0 if response.data else False
+
+def get_message_by_id(message_id: str) -> Optional[Dict]:
+    """
+    Obtiene un mensaje por su ID.
+    
+    Args:
+        message_id: ID del mensaje
+        
+    Returns:
+        Datos del mensaje o None si no existe
+    """
+    response = supabase.table("messages").select("*").eq("id", message_id).execute()
+    return response.data[0] if response.data else None
 
 # ----- OPERACIONES DE ESTADO DEL AGENTE -----
 

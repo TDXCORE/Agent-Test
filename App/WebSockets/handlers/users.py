@@ -13,7 +13,8 @@ from App.DB.db_operations import (
     create_user,
     update_user,
     get_or_create_user,
-    get_all_users_from_db
+    get_all_users_from_db,
+    delete_user
 )
 import asyncio
 from functools import wraps
@@ -152,6 +153,21 @@ class UsersHandler(BaseHandler):
         if not user_id:
             raise ValueError("Se requiere user_id para eliminar")
         
-        # En esta implementación inicial, no podemos eliminar usuarios
-        # Devolvemos un error
-        raise ValueError("La eliminación de usuarios no está implementada")
+        # Verificar que el usuario existe
+        existing_user = await self.to_async(get_user_by_id)(user_id)
+        if not existing_user:
+            raise ValueError(f"Usuario no encontrado: {user_id}")
+        
+        # Eliminar usuario (marcar como inactivo)
+        success = await self.to_async(delete_user)(user_id)
+        
+        if success:
+            # Notificar a los clientes sobre la eliminación
+            await dispatch_event("user_deleted", {
+                "user_id": user_id
+            })
+        
+        return {
+            "success": success,
+            "user_id": user_id
+        }
