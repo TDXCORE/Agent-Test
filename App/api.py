@@ -20,11 +20,6 @@ logger = logging.getLogger(__name__)
 # Import dependencies
 from App.DB.supabase_client import get_supabase_client
 
-# Import API routers
-from App.Api.conversations import router as conversations_router
-from App.Api.messages import router as messages_router
-from App.Api.users import router as users_router
-
 # Import webhook handler
 from App.Services.simple_webhook import app as webhook_app
 
@@ -46,11 +41,6 @@ app.add_middleware(
     allow_methods=["*"],  # Allows all methods
     allow_headers=["*"],  # Allows all headers
 )
-
-# Include API routers
-app.include_router(conversations_router, prefix="/api/conversations", tags=["conversations"])
-app.include_router(messages_router, prefix="/api/messages", tags=["messages"])
-app.include_router(users_router, prefix="/api/users", tags=["users"])
 
 # Mount the webhook app
 # This will route all requests to /webhook to the webhook_app
@@ -248,28 +238,10 @@ async def health_dashboard():
                     description: "Verificación del webhook de WhatsApp"
                 },
                 {
-                    name: "Conversaciones",
-                    url: "/api/conversations?user_id=test",
-                    method: "GET",
-                    description: "Gestión de conversaciones"
-                },
-                {
-                    name: "Mensajes",
-                    url: "/api/messages?conversation_id=test",
-                    method: "GET",
-                    description: "Gestión de mensajes"
-                },
-                {
-                    name: "Usuarios",
-                    url: "/api/users",
-                    method: "GET",
-                    description: "Gestión de usuarios"
-                },
-                {
-                    name: "Integraciones",
+                    name: "WebSocket Health",
                     url: "/health-check",
                     method: "GET",
-                    description: "Estado de integraciones externas (WhatsApp, Outlook, Supabase)"
+                    description: "Estado del WebSocket y las integraciones externas (WhatsApp, Outlook, Supabase)"
                 }
             ];
 
@@ -293,14 +265,6 @@ async def health_dashboard():
 
             // Función para actualizar las URLs de los endpoints con datos reales
             function updateEndpointUrls() {
-                endpoints.forEach(endpoint => {
-                    if (endpoint.name === "Conversaciones" && testData.user_id) {
-                        endpoint.url = `/api/conversations?user_id=${testData.user_id}`;
-                    } else if (endpoint.name === "Mensajes" && testData.conversation_id) {
-                        endpoint.url = `/api/messages?conversation_id=${testData.conversation_id}`;
-                    }
-                });
-                
                 // Recrear las tarjetas con las nuevas URLs
                 createEndpointCards();
             }
