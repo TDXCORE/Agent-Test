@@ -32,7 +32,9 @@ class ConversationsHandler(BaseHandler):
             "create_conversation": self.create_conversation,
             "close_conversation": self.update_conversation,
             "update_agent_status": self.toggle_agent_status,
-            "get_user_conversations": self.get_conversations_by_agent_status
+            "get_user_conversations": self.get_conversations_by_agent_status,
+            "get_conversation_with_details": self.get_conversation_with_details,
+            "archive_conversation": self.archive_conversation
         }
     
     # Función auxiliar para convertir funciones síncronas en asíncronas
@@ -184,6 +186,11 @@ class ConversationsHandler(BaseHandler):
         # Obtener conversaciones filtradas por estado del agente
         conversations = await self.to_async(self._get_conversations_by_agent_status)(agent_enabled, user_id)
         
+        # Log para debugging
+        logger.info(f"Conversaciones obtenidas: {len(conversations)} (agent_enabled={agent_enabled})")
+        if conversations:
+            logger.info(f"Primera conversación de ejemplo: {conversations[0]}")
+        
         return {
             "conversations": conversations,
             "agent_enabled": agent_enabled
@@ -232,15 +239,49 @@ class ConversationsHandler(BaseHandler):
         from App.DB.supabase_client import get_supabase_client
         supabase = get_supabase_client()
         
+        # Consulta mejorada para incluir datos del usuario y último mensaje
         query = supabase.table("conversations").select(
-            "*, users(full_name, email, phone)"
+            """
+            *,
+            users!inner(id, full_name, email, phone, company),
+            messages(id, content, created_at, role, read)
+            """
         ).eq("agent_enabled", agent_enabled)
         
         if user_id:
             query = query.eq("user_id", user_id)
         
         response = query.order("updated_at", desc=True).execute()
-        return response.data if response.data else []
+        
+        # Procesar los datos para incluir información adicional
+        conversations = response.data if response.data else []
+        
+        for conversation in conversations:
+            # Procesar mensajes para obtener el último mensaje y contar no leídos
+            messages = conversation.get("messages", [])
+            if messages:
+                # Ordenar mensajes por fecha
+                messages.sort(key=lambda x: x["created_at"])
+                conversation["last_message"] = messages[-1] if messages else None
+                conversation["unread_count"] = len([m for m in messages if not m.get("read", False) and m.get("role") == "user"])
+            else:
+                conversation["last_message"] = None
+                conversation["unread_count"] = 0
+            
+            # Asegurar que los datos del usuario estén disponibles
+            user_data = conversation.get("users")
+            if user_data:
+                # Si users es una lista, tomar el primer elemento
+                if isinstance(user_data, list) and len(user_data) > 0:
+                    conversation["user"] = user_data[0]
+                elif isinstance(user_data, dict):
+                    conversation["user"] = user_data
+                else:
+                    conversation["user"] = None
+            else:
+                conversation["user"] = None
+        
+        return conversations
     
     def _get_conversation_with_details(self, conversation_id: str) -> Optional[Dict]:
         """Función auxiliar para obtener conversación con detalles."""
