@@ -13,7 +13,8 @@ from App.DB.db_operations import (
     get_or_create_conversation,
     get_user_by_id,
     get_conversation_by_id,
-    get_user_conversations
+    get_user_conversations,
+    update_agent_status
 )
 import asyncio
 from functools import wraps
@@ -26,11 +27,12 @@ class ConversationsHandler(BaseHandler):
     def _register_actions(self) -> None:
         """Registra los manejadores de acciones para conversaciones."""
         self.action_handlers = {
-            "get_all": self.get_all_conversations,
-            "get_by_id": self.get_conversation,
-            "create": self.create_conversation,
-            "update": self.update_conversation,
-            "delete": self.delete_conversation
+            "get_all_conversations": self.get_all_conversations,
+            "get_conversation_by_id": self.get_conversation,
+            "create_conversation": self.create_conversation,
+            "close_conversation": self.update_conversation,
+            "update_agent_status": self.toggle_agent_status,
+            "get_user_conversations": self.get_conversations_by_agent_status
         }
     
     # Función auxiliar para convertir funciones síncronas en asíncronas
@@ -147,3 +149,143 @@ class ConversationsHandler(BaseHandler):
             "success": success,
             "conversation_id": conversation_id
         }
+    
+    async def toggle_agent_status(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Activa o desactiva el agente IA para una conversación."""
+        conversation_id = payload.get("conversation_id")
+        enabled = payload.get("enabled")
+        
+        if not conversation_id or enabled is None:
+            raise ValueError("Se requieren conversation_id y enabled")
+        
+        # Actualizar estado del agente
+        updated_conversation = await self.to_async(update_agent_status)(conversation_id, enabled)
+        
+        # Notificar a los clientes sobre el cambio
+        await dispatch_event("agent_toggled", {
+            "conversation_id": conversation_id,
+            "agent_enabled": enabled,
+            "conversation": updated_conversation
+        })
+        
+        return {
+            "conversation": updated_conversation,
+            "agent_enabled": enabled
+        }
+    
+    async def get_conversations_by_agent_status(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Obtiene conversaciones filtradas por estado del agente."""
+        agent_enabled = payload.get("agent_enabled")
+        user_id = payload.get("user_id")
+        
+        if agent_enabled is None:
+            raise ValueError("Se requiere agent_enabled")
+        
+        # Obtener conversaciones filtradas por estado del agente
+        conversations = await self.to_async(self._get_conversations_by_agent_status)(agent_enabled, user_id)
+        
+        return {
+            "conversations": conversations,
+            "agent_enabled": agent_enabled
+        }
+    
+    async def get_conversation_with_details(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Obtiene una conversación con detalles completos."""
+        conversation_id = payload.get("conversation_id")
+        
+        if not conversation_id:
+            raise ValueError("Se requiere conversation_id")
+        
+        # Obtener conversación con detalles
+        conversation_details = await self.to_async(self._get_conversation_with_details)(conversation_id)
+        
+        if not conversation_details:
+            raise ValueError(f"Conversación no encontrada: {conversation_id}")
+        
+        return {
+            "conversation": conversation_details
+        }
+    
+    async def archive_conversation(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Archiva una conversación."""
+        conversation_id = payload.get("conversation_id")
+        
+        if not conversation_id:
+            raise ValueError("Se requiere conversation_id")
+        
+        # Archivar conversación
+        archived_conversation = await self.to_async(self._archive_conversation)(conversation_id)
+        
+        # Notificar a los clientes sobre el archivado
+        await dispatch_event("conversation_archived", {
+            "conversation_id": conversation_id,
+            "conversation": archived_conversation
+        })
+        
+        return {
+            "conversation": archived_conversation,
+            "archived": True
+        }
+    
+    def _get_conversations_by_agent_status(self, agent_enabled: bool, user_id: Optional[str] = None) -> List[Dict]:
+        """Función auxiliar para obtener conversaciones por estado del agente."""
+        from App.DB.supabase_client import get_supabase_client
+        supabase = get_supabase_client()
+        
+        query = supabase.table("conversations").select(
+            "*, users(full_name, email, phone)"
+        ).eq("agent_enabled", agent_enabled)
+        
+        if user_id:
+            query = query.eq("user_id", user_id)
+        
+        response = query.order("updated_at", desc=True).execute()
+        return response.data if response.data else []
+    
+    def _get_conversation_with_details(self, conversation_id: str) -> Optional[Dict]:
+        """Función auxiliar para obtener conversación con detalles."""
+        from App.DB.supabase_client import get_supabase_client
+        supabase = get_supabase_client()
+        
+        # Obtener conversación con usuario y último mensaje
+        response = supabase.table("conversations").select(
+            """
+            *,
+            users(full_name, email, phone, company),
+            messages(content, created_at, role, message_type, read)
+            """
+        ).eq("id", conversation_id).execute()
+        
+        if not response.data:
+            return None
+        
+        conversation = response.data[0]
+        
+        # Obtener lead qualification si existe
+        lead_response = supabase.table("lead_qualification").select(
+            "current_step"
+        ).eq("conversation_id", conversation_id).execute()
+        
+        if lead_response.data:
+            conversation["lead_step"] = lead_response.data[0]["current_step"]
+        
+        # Obtener último mensaje
+        if conversation.get("messages"):
+            messages = conversation["messages"]
+            conversation["last_message"] = max(messages, key=lambda x: x["created_at"]) if messages else None
+            conversation["unread_count"] = len([m for m in messages if not m["read"] and m["role"] == "user"])
+        
+        return conversation
+    
+    def _archive_conversation(self, conversation_id: str) -> Dict:
+        """Función auxiliar para archivar conversación."""
+        from App.DB.supabase_client import get_supabase_client
+        supabase = get_supabase_client()
+        
+        update_data = {
+            "status": "archived",
+            "updated_at": "now()"
+        }
+        
+        response = supabase.table("conversations").update(update_data).eq("id", conversation_id).execute()
+        return response.data[0] if response.data else {}

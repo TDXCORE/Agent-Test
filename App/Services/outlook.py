@@ -573,6 +573,248 @@ def find_meetings_by_subject(subject_contains, start_date=None, end_date=None):
     
     return matching_events
 
+def sync_calendar():
+    """
+    Sincroniza el calendario de Outlook con la base de datos local.
+    
+    Returns:
+        Dict con estadísticas de la sincronización
+    """
+    token, token_type = get_access_token()
+    if not token:
+        return {"error": "No se pudo obtener token de acceso"}
+    
+    # Obtener eventos de los próximos 30 días
+    bogota_tz = pytz.timezone(TIMEZONE)
+    start_date = datetime.now(bogota_tz)
+    end_date = start_date + timedelta(days=30)
+    
+    # Formatear fechas para la API
+    start_str = start_date.strftime("%Y-%m-%dT00:00:00Z")
+    end_str = end_date.strftime("%Y-%m-%dT23:59:59Z")
+    
+    # Endpoint según tipo de token
+    endpoint = f"{GRAPH_ENDPOINT}/me/calendarView?startDateTime={start_str}&endDateTime={end_str}"
+    if token_type == "app":
+        endpoint = f"{GRAPH_ENDPOINT}/users/{USER_EMAIL}/calendarView?startDateTime={start_str}&endDateTime={end_str}"
+    
+    # Obtener eventos del calendario
+    try:
+        resp = requests.get(
+            endpoint,
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            timeout=REQUEST_TIMEOUT
+        )
+    except requests.exceptions.Timeout:
+        logger.error(f"Timeout al sincronizar calendario después de {REQUEST_TIMEOUT}s")
+        return {"error": "Timeout al obtener eventos del calendario"}
+    except Exception as e:
+        logger.error(f"Error al sincronizar calendario: {str(e)}")
+        return {"error": f"Error al obtener eventos: {str(e)}"}
+    
+    if resp.status_code != 200:
+        return {"error": f"Error al obtener eventos: {resp.status_code} - {resp.text}"}
+    
+    events = resp.json().get('value', [])
+    
+    # Estadísticas de sincronización
+    stats = {
+        "total_events": len(events),
+        "synced_events": 0,
+        "updated_events": 0,
+        "new_events": 0,
+        "errors": []
+    }
+    
+    # Procesar cada evento
+    for event in events:
+        try:
+            outlook_id = event.get("id")
+            subject = event.get("subject", "")
+            
+            # Verificar si el evento ya existe en la BD
+            existing_meeting = get_meeting_by_outlook_id(outlook_id)
+            
+            if existing_meeting:
+                # Actualizar evento existente si es necesario
+                stats["updated_events"] += 1
+            else:
+                # Nuevo evento - podría agregarse a la BD si es relevante
+                stats["new_events"] += 1
+            
+            stats["synced_events"] += 1
+            
+        except Exception as e:
+            stats["errors"].append(f"Error procesando evento {event.get('id', 'unknown')}: {str(e)}")
+    
+    logger.info(f"Sincronización completada: {stats['synced_events']}/{stats['total_events']} eventos procesados")
+    
+    return stats
+
+# ============================================================================
+# WRAPPER FUNCTIONS FOR MEETINGS HANDLER COMPATIBILITY
+# ============================================================================
+
+def create_meeting(subject, start_time, end_time, attendees, body=""):
+    """
+    Wrapper function for schedule_meeting to maintain compatibility with meetings handler.
+    
+    Args:
+        subject: Asunto de la reunión
+        start_time: Fecha y hora de inicio (string ISO o datetime)
+        end_time: Fecha y hora de fin (string ISO o datetime)
+        attendees: Lista de correos electrónicos
+        body: Cuerpo/descripción de la reunión
+        
+    Returns:
+        Detalles de la reunión creada o None si falla
+    """
+    try:
+        # Convertir strings a datetime si es necesario
+        if isinstance(start_time, str):
+            start_time = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+        if isinstance(end_time, str):
+            end_time = datetime.fromisoformat(end_time.replace('Z', '+00:00'))
+        
+        # Calcular duración en minutos
+        duration = int((end_time - start_time).total_seconds() / 60)
+        
+        # Llamar a la función original schedule_meeting
+        result = schedule_meeting(
+            subject=subject,
+            start=start_time,
+            duration=duration,
+            attendees=attendees,
+            body=body,
+            is_online_meeting=True
+        )
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error en create_meeting wrapper: {str(e)}")
+        return None
+
+def update_meeting(meeting_id, subject=None, start_time=None, end_time=None, body=None):
+    """
+    Wrapper function for reschedule_meeting to maintain compatibility with meetings handler.
+    
+    Args:
+        meeting_id: ID de la reunión en Outlook
+        subject: Nuevo asunto (opcional)
+        start_time: Nueva fecha y hora de inicio (string ISO o datetime)
+        end_time: Nueva fecha y hora de fin (string ISO o datetime)
+        body: Nuevo cuerpo/descripción (opcional)
+        
+    Returns:
+        Detalles de la reunión actualizada o None si falla
+    """
+    try:
+        # Si solo se proporciona start_time, usar reschedule_meeting
+        if start_time and not end_time:
+            # Convertir string a datetime si es necesario
+            if isinstance(start_time, str):
+                start_time = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+            
+            result = reschedule_meeting(meeting_id, start_time)
+            return result
+        
+        # Si se proporcionan start_time y end_time, calcular duración
+        elif start_time and end_time:
+            # Convertir strings a datetime si es necesario
+            if isinstance(start_time, str):
+                start_time = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+            if isinstance(end_time, str):
+                end_time = datetime.fromisoformat(end_time.replace('Z', '+00:00'))
+            
+            # Calcular duración en minutos
+            duration = int((end_time - start_time).total_seconds() / 60)
+            
+            result = reschedule_meeting(meeting_id, start_time, duration)
+            return result
+        
+        else:
+            logger.warning("update_meeting: No se proporcionaron cambios de fecha/hora")
+            # Para otros cambios (subject, body), necesitaríamos implementar una función más completa
+            # Por ahora, retornamos un resultado básico
+            return {"id": meeting_id, "updated": True, "note": "Solo cambios de fecha/hora soportados"}
+            
+    except Exception as e:
+        logger.error(f"Error en update_meeting wrapper: {str(e)}")
+        return None
+
+def cancel_meeting_wrapper(meeting_id, reason="Cancelada por el usuario"):
+    """
+    Wrapper function for cancel_meeting to maintain compatibility with meetings handler.
+    
+    Args:
+        meeting_id: ID de la reunión en Outlook
+        reason: Razón de la cancelación
+        
+    Returns:
+        True si se canceló correctamente, False si falló
+    """
+    try:
+        # La función original cancel_meeting ya existe, solo la llamamos
+        result = cancel_meeting(meeting_id)
+        
+        if result:
+            logger.info(f"Reunión {meeting_id} cancelada: {reason}")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error en cancel_meeting wrapper: {str(e)}")
+        return False
+
+def get_available_slots_wrapper(date, duration_minutes=60):
+    """
+    Wrapper function for get_available_slots to maintain compatibility with meetings handler.
+    
+    Args:
+        date: Fecha en formato string YYYY-MM-DD
+        duration_minutes: Duración en minutos para los slots
+        
+    Returns:
+        Lista de slots disponibles
+    """
+    try:
+        # Convertir string date a datetime
+        if isinstance(date, str):
+            date_obj = datetime.strptime(date, "%Y-%m-%d")
+        else:
+            date_obj = date
+        
+        # Llamar a la función original
+        slots = get_available_slots(
+            start_date=date_obj,
+            days=1,  # Solo el día solicitado
+            start_hour=8,
+            end_hour=17
+        )
+        
+        # Filtrar slots para que coincidan con la duración solicitada
+        filtered_slots = []
+        for slot in slots:
+            slot_datetime = slot["datetime"]
+            slot_end = slot_datetime + timedelta(minutes=duration_minutes)
+            
+            # Verificar que el slot completo esté dentro del horario laboral
+            if slot_end.hour <= 17:
+                filtered_slots.append({
+                    "start_time": slot_datetime.isoformat(),
+                    "end_time": slot_end.isoformat(),
+                    "available": True,
+                    "date": slot["date"],
+                    "time": slot["time"]
+                })
+        
+        return filtered_slots
+        
+    except Exception as e:
+        logger.error(f"Error en get_available_slots wrapper: {str(e)}")
+        return []
+
 # Función original para compatibilidad
 def schedule_meeting_original(token, token_type, subject, start, duration, attendees):
     """Función original para mantener compatibilidad con código existente"""

@@ -26,11 +26,12 @@ class MessagesHandler(BaseHandler):
     def _register_actions(self) -> None:
         """Registra los manejadores de acciones para mensajes."""
         self.action_handlers = {
-            "get_by_conversation": self.get_messages_by_conversation,
-            "get_by_id": self.get_message,
-            "create": self.create_message,
-            "update": self.update_message,
-            "delete": self.delete_message
+            "get_all_messages": self.get_messages_by_conversation,
+            "send_message": self.create_message,
+            "get_conversation_messages": self.get_messages_by_conversation,
+            "mark_as_read": self.mark_conversation_as_read,
+            "delete_message": self.delete_message,
+            "update_message": self.update_message
         }
     
     # Función auxiliar para convertir funciones síncronas en asíncronas
@@ -203,3 +204,131 @@ class MessagesHandler(BaseHandler):
             "success": success,
             "message_id": message_id
         }
+    
+    async def send_to_whatsapp(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Envía mensaje a WhatsApp usando simple_webhook.py"""
+        from App.Services.simple_webhook import send_whatsapp_message
+        
+        phone = payload.get("phone")
+        message_type = payload.get("message_type", "text")
+        content = payload.get("content")
+        caption = payload.get("caption")
+        
+        if not phone or not content:
+            raise ValueError("Se requieren phone y content")
+        
+        # Enviar mensaje
+        result = await self.to_async(send_whatsapp_message)(phone, message_type, content, caption)
+        
+        # Guardar en BD si se especifica conversation_id
+        conversation_id = payload.get("conversation_id")
+        if conversation_id and result:
+            new_message = await self.to_async(add_message)(
+                conversation_id=conversation_id,
+                role="assistant",
+                content=content,
+                message_type=message_type,
+                read=True
+            )
+            
+            # Notificar sobre el nuevo mensaje
+            await dispatch_event("new_message", {
+                "conversation_id": conversation_id,
+                "message": new_message
+            })
+        
+        return {"success": result is not None, "result": result}
+    
+    async def mark_conversation_as_read(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Marca todos los mensajes de una conversación como leídos."""
+        conversation_id = payload.get("conversation_id")
+        
+        if not conversation_id:
+            raise ValueError("Se requiere conversation_id")
+        
+        # Marcar mensajes como leídos
+        count = await self.to_async(mark_messages_as_read)(conversation_id)
+        
+        # Notificar a los clientes
+        await dispatch_event("messages_read", {
+            "conversation_id": conversation_id,
+            "count": count
+        })
+        
+        return {
+            "success": True,
+            "conversation_id": conversation_id,
+            "count": count
+        }
+    
+    async def get_unread_count(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Obtiene el conteo de mensajes no leídos por conversación."""
+        user_id = payload.get("user_id")
+        conversation_id = payload.get("conversation_id")
+        
+        # Obtener conteo de mensajes no leídos
+        unread_counts = await self.to_async(self._get_unread_count)(user_id, conversation_id)
+        
+        return {
+            "unread_counts": unread_counts
+        }
+    
+    async def search_messages(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Busca mensajes por contenido."""
+        search_term = payload.get("search_term")
+        conversation_id = payload.get("conversation_id")
+        limit = payload.get("limit", 50)
+        offset = payload.get("offset", 0)
+        
+        if not search_term:
+            raise ValueError("Se requiere search_term")
+        
+        # Buscar mensajes
+        messages = await self.to_async(self._search_messages)(search_term, conversation_id, limit, offset)
+        
+        return {
+            "messages": messages,
+            "search_term": search_term,
+            "pagination": {
+                "limit": limit,
+                "offset": offset,
+                "total": len(messages)
+            }
+        }
+    
+    def _get_unread_count(self, user_id: Optional[str] = None, conversation_id: Optional[str] = None) -> List[Dict]:
+        """Función auxiliar para obtener conteo de mensajes no leídos."""
+        from App.DB.supabase_client import get_supabase_client
+        supabase = get_supabase_client()
+        
+        query = supabase.table("messages").select(
+            "conversation_id, count(*)"
+        ).eq("read", False).eq("role", "user")
+        
+        if conversation_id:
+            query = query.eq("conversation_id", conversation_id)
+        elif user_id:
+            # Filtrar por conversaciones del usuario
+            query = query.in_(
+                "conversation_id",
+                supabase.table("conversations").select("id").eq("user_id", user_id).execute().data
+            )
+        
+        response = query.execute()
+        return response.data if response.data else []
+    
+    def _search_messages(self, search_term: str, conversation_id: Optional[str] = None, 
+                        limit: int = 50, offset: int = 0) -> List[Dict]:
+        """Función auxiliar para buscar mensajes."""
+        from App.DB.supabase_client import get_supabase_client
+        supabase = get_supabase_client()
+        
+        query = supabase.table("messages").select(
+            "*, conversations(external_id, platform, users(full_name, phone))"
+        ).ilike("content", f"%{search_term}%")
+        
+        if conversation_id:
+            query = query.eq("conversation_id", conversation_id)
+        
+        response = query.order("created_at", desc=True).range(offset, offset + limit - 1).execute()
+        return response.data if response.data else []

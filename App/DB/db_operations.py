@@ -839,3 +839,39 @@ def update_agent_status(conversation_id: str, enabled: bool) -> Dict:
     ).eq("id", conversation_id).execute()
     
     return response.data[0] if response.data else {}
+
+# ----- FUNCIONES ADICIONALES PARA WEBSOCKETS -----
+
+def add_feature_to_requirement(requirement_id: str, feature_data: Dict[str, Any]) -> Dict:
+    """
+    Añade una feature a un requirement usando los datos proporcionados.
+    
+    Args:
+        requirement_id: ID del requirement
+        feature_data: Datos de la feature (name, description)
+        
+    Returns:
+        Datos de la feature creada
+    """
+    return add_feature(
+        requirement_id=requirement_id,
+        name=feature_data.get("name"),
+        description=feature_data.get("description")
+    )
+
+def add_integration_to_requirement(requirement_id: str, integration_data: Dict[str, Any]) -> Dict:
+    """
+    Añade una integration a un requirement usando los datos proporcionados.
+    
+    Args:
+        requirement_id: ID del requirement
+        integration_data: Datos de la integration (name, description)
+        
+    Returns:
+        Datos de la integration creada
+    """
+    return add_integration(
+        requirement_id=requirement_id,
+        name=integration_data.get("name"),
+        description=integration_data.get("description")
+    )

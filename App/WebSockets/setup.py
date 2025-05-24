@@ -13,6 +13,10 @@ from datetime import datetime, timedelta
 from .connection import ConnectionManager
 from .auth import verify_token
 from .handlers import ConversationsHandler, MessagesHandler, UsersHandler
+from .handlers.dashboard import DashboardHandler
+from .handlers.leads import LeadsHandler
+from .handlers.meetings import MeetingsHandler
+from .handlers.requirements import RequirementsHandler
 from .events.listeners import setup_listeners
 
 logger = logging.getLogger(__name__)
@@ -250,7 +254,11 @@ def setup_websockets(app: FastAPI):
     handlers = {
         "conversations": ConversationsHandler(connection_manager),
         "messages": MessagesHandler(connection_manager),
-        "users": UsersHandler(connection_manager)
+        "users": UsersHandler(connection_manager),
+        "dashboard": DashboardHandler(connection_manager),
+        "leads": LeadsHandler(connection_manager),
+        "meetings": MeetingsHandler(connection_manager),
+        "requirements": RequirementsHandler(connection_manager)
     }
     
     # Configurar listeners de eventos
