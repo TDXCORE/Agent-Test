@@ -146,6 +146,10 @@ class ConnectionManager:
             if websocket in self.active_connections:  # Verificar nuevamente por si acaso
                 self.disconnect(websocket)
     
+    async def broadcast_to_all(self, message: Dict[str, Any]) -> None:
+        """Alias para broadcast - envía un mensaje a todas las conexiones activas."""
+        await self.broadcast(message)
+    
     async def broadcast_to_user(self, user_id: str, message: Dict[str, Any]) -> None:
         """Envía un mensaje a todas las conexiones de un usuario."""
         if user_id not in self.connections_by_user:
